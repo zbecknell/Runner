@@ -1,0 +1,563 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:Runner.App.ViewModels"
+        xmlns:i="https://github.com/projektanker/icons.avalonia"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d"
+        d:DesignWidth="1120"
+        d:DesignHeight="720"
+        x:Class="Runner.App.Views.MainWindow"
+        x:DataType="vm:MainWindowViewModel"
+        Icon="/Assets/avalonia-logo.ico"
+        Title="Runner"
+        Width="1120"
+        Height="720"
+        MinWidth="900"
+        MinHeight="560"
+        Topmost="{Binding AlwaysOnTop}">
+
+    <Grid RowDefinitions="Auto,*">
+        <Border Grid.Row="0"
+                BorderBrush="#D0D7DE"
+                BorderThickness="0,0,0,1"
+                Padding="16,12">
+            <Grid ColumnDefinitions="*,Auto"
+                  VerticalAlignment="Center">
+                <StackPanel Grid.Column="0"
+                            Spacing="2">
+                    <TextBlock Text="Runner"
+                               FontSize="20"
+                               FontWeight="SemiBold" />
+                    <TextBlock Text="{Binding ConfigPath}"
+                               Foreground="#667085"
+                               FontSize="12" />
+                </StackPanel>
+
+                <StackPanel Grid.Column="1"
+                            Orientation="Horizontal"
+                            Spacing="8"
+                            VerticalAlignment="Center">
+                    <Button Width="36"
+                            Height="34"
+                            Padding="0"
+                            Background="{Binding AlwaysOnTopButtonBackground}"
+                            Command="{Binding ToggleAlwaysOnTopCommand}"
+                            ToolTip.Tip="{Binding AlwaysOnTopToolTip}">
+                        <i:Icon Value="fa-solid fa-thumbtack"
+                                Foreground="{Binding AlwaysOnTopIconForeground}"
+                                FontSize="14"
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center" />
+                    </Button>
+
+                    <Button Command="{Binding ToggleEditModeCommand}">
+                        <StackPanel Orientation="Horizontal"
+                                    Spacing="6">
+                            <i:Icon Value="{Binding EditModeIconValue}"
+                                    FontSize="12"
+                                    VerticalAlignment="Center" />
+                            <TextBlock Text="{Binding EditModeButtonText}" />
+                        </StackPanel>
+                    </Button>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <Grid Grid.Row="1"
+              RowDefinitions="*,Auto"
+              IsVisible="{Binding IsDashboardMode}">
+            <Grid Grid.Row="0"
+                  Margin="16">
+                <StackPanel IsVisible="{Binding HasNoRunners}"
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center"
+                            Spacing="12">
+                    <TextBlock Text="No runners configured."
+                               Foreground="#667085"
+                               FontSize="16"
+                               HorizontalAlignment="Center" />
+                    <Button Command="{Binding AddRunnerCommand}"
+                            HorizontalAlignment="Center">
+                        <StackPanel Orientation="Horizontal"
+                                    Spacing="6">
+                            <i:Icon Value="fa-solid fa-plus"
+                                    FontSize="12"
+                                    VerticalAlignment="Center" />
+                            <TextBlock Text="Add runner" />
+                        </StackPanel>
+                    </Button>
+                </StackPanel>
+
+                <ListBox ItemsSource="{Binding Runners}"
+                         SelectedItem="{Binding SelectedRunner}"
+                         IsVisible="{Binding HasRunners}">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate DataType="vm:RunnerViewModel"
+                                      x:CompileBindings="False">
+                            <Border Padding="12"
+                                    MinHeight="84">
+                                <Grid RowDefinitions="Auto,Auto"
+                                      RowSpacing="10">
+                                    <Grid Grid.Row="0"
+                                          ColumnDefinitions="*,Auto"
+                                          ColumnSpacing="12">
+                                        <Grid Grid.Column="0"
+                                              RowDefinitions="Auto,Auto,Auto">
+                                            <StackPanel Grid.Row="0"
+                                                        Orientation="Horizontal"
+                                                        Spacing="8">
+                                                <TextBlock Text="{Binding Header}"
+                                                           FontSize="16"
+                                                           FontWeight="SemiBold"
+                                                           TextTrimming="CharacterEllipsis"
+                                                           VerticalAlignment="Center" />
+                                                <Border Padding="8,3"
+                                                        CornerRadius="4"
+                                                        Background="{Binding StatusBackground}"
+                                                        BorderBrush="{Binding StatusBorderBrush}"
+                                                        BorderThickness="1"
+                                                        VerticalAlignment="Center">
+                                                    <Grid ColumnDefinitions="Auto,Auto"
+                                                          ColumnSpacing="6">
+                                                        <i:Icon Grid.Column="0"
+                                                                Value="{Binding StatusIconValue}"
+                                                                Foreground="{Binding StatusForeground}"
+                                                                FontSize="11"
+                                                                VerticalAlignment="Center" />
+                                                        <TextBlock Grid.Column="1"
+                                                                   Text="{Binding StatusText}"
+                                                                   Foreground="{Binding StatusForeground}"
+                                                                   FontSize="12"
+                                                                   FontWeight="SemiBold" />
+                                                    </Grid>
+                                                </Border>
+                                            </StackPanel>
+
+                                            <TextBlock Grid.Row="1"
+                                                       Text="{Binding WorkingDirectory}"
+                                                       Opacity="0.78"
+                                                       FontSize="12"
+                                                       TextTrimming="CharacterEllipsis"
+                                                       Margin="0,4,0,0" />
+                                            <TextBlock Grid.Row="2"
+                                                       Text="{Binding ProcessText}"
+                                                       Opacity="0.86"
+                                                       FontSize="12" />
+                                        </Grid>
+
+                                        <StackPanel Grid.Column="1"
+                                                    Orientation="Horizontal"
+                                                    Spacing="6"
+                                                    VerticalAlignment="Center">
+                                            <Button Width="34"
+                                                    Height="34"
+                                                    Padding="0"
+                                                    Command="{Binding DataContext.RunRunnerCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                    CommandParameter="{Binding}"
+                                                    ToolTip.Tip="{Binding PrimaryRunToolTip}">
+                                                <i:Icon Value="{Binding PrimaryRunIconValue}"
+                                                        FontSize="13"
+                                                        HorizontalAlignment="Center"
+                                                        VerticalAlignment="Center" />
+                                            </Button>
+                                            <Button Width="34"
+                                                    Height="34"
+                                                    Padding="0"
+                                                    Command="{Binding DataContext.StopRunnerCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                    CommandParameter="{Binding}"
+                                                    ToolTip.Tip="Stop">
+                                                <i:Icon Value="fa-solid fa-stop"
+                                                        FontSize="13"
+                                                        HorizontalAlignment="Center"
+                                                        VerticalAlignment="Center" />
+                                            </Button>
+                                            <Button Width="34"
+                                                    Height="34"
+                                                    Padding="0"
+                                                    Command="{Binding ShowFailureDetailsCommand}"
+                                                    IsVisible="{Binding HasFailureDetails}"
+                                                    ToolTip.Tip="Failure details">
+                                                <i:Icon Value="fa-solid fa-triangle-exclamation"
+                                                        FontSize="13"
+                                                        HorizontalAlignment="Center"
+                                                        VerticalAlignment="Center" />
+                                            </Button>
+                                        </StackPanel>
+                                    </Grid>
+
+                                    <Border Grid.Row="1"
+                                            IsVisible="{Binding IsFailureDetailsVisible}"
+                                            Padding="12"
+                                            CornerRadius="6"
+                                            Background="#2A1111"
+                                            BorderBrush="#EF4444"
+                                            BorderThickness="1">
+                                        <Grid RowDefinitions="Auto,Auto">
+                                            <Grid Grid.Row="0"
+                                                  ColumnDefinitions="*,Auto"
+                                                  Margin="0,0,0,8">
+                                                <StackPanel Grid.Column="0"
+                                                            Orientation="Horizontal"
+                                                            Spacing="8"
+                                                            VerticalAlignment="Center">
+                                                    <i:Icon Value="fa-solid fa-triangle-exclamation"
+                                                            Foreground="#FEF2F2"
+                                                            FontSize="14"
+                                                            VerticalAlignment="Center" />
+                                                    <TextBlock Text="Failure details"
+                                                               FontWeight="SemiBold"
+                                                               Foreground="#FEF2F2"
+                                                               VerticalAlignment="Center" />
+                                                </StackPanel>
+                                                <Button Grid.Column="1"
+                                                        Width="30"
+                                                        Height="30"
+                                                        Padding="0"
+                                                        Command="{Binding HideFailureDetailsCommand}"
+                                                        ToolTip.Tip="Hide failure details">
+                                                    <i:Icon Value="fa-solid fa-xmark"
+                                                            FontSize="12"
+                                                            HorizontalAlignment="Center"
+                                                            VerticalAlignment="Center" />
+                                                </Button>
+                                            </Grid>
+
+                                            <TextBox Grid.Row="1"
+                                                     Text="{Binding FailureDetailsText}"
+                                                     IsReadOnly="True"
+                                                     AcceptsReturn="True"
+                                                     Height="120"
+                                                     FontFamily="Consolas, Menlo, monospace"
+                                                     TextWrapping="NoWrap"
+                                                     ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                                     ScrollViewer.HorizontalScrollBarVisibility="Auto" />
+                                        </Grid>
+                                    </Border>
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </Grid>
+
+            <TextBlock Grid.Row="1"
+                       Text="{Binding StatusMessage}"
+                       Margin="16,0,16,14"
+                       Foreground="#475467"
+                       TextWrapping="Wrap" />
+        </Grid>
+
+        <Grid Grid.Row="1"
+              ColumnDefinitions="320,*"
+              IsVisible="{Binding IsEditMode}">
+            <Border Grid.Column="0"
+                    BorderBrush="#D0D7DE"
+                    BorderThickness="0,0,1,0"
+                    Padding="12">
+                <Grid RowDefinitions="Auto,*,Auto">
+                    <Grid Grid.Row="0"
+                          ColumnDefinitions="*,Auto,Auto"
+                          Margin="0,0,0,10">
+                        <TextBlock Grid.Column="0"
+                                   Text="Projects"
+                                   FontSize="16"
+                                   FontWeight="SemiBold"
+                                   VerticalAlignment="Center" />
+                        <Button Grid.Column="1"
+                                Command="{Binding AddRunnerCommand}"
+                                Margin="0,0,8,0">
+                            <StackPanel Orientation="Horizontal"
+                                        Spacing="6">
+                                <i:Icon Value="fa-solid fa-plus"
+                                        FontSize="12"
+                                        VerticalAlignment="Center" />
+                                <TextBlock Text="Add" />
+                            </StackPanel>
+                        </Button>
+                        <Button Grid.Column="2"
+                                Command="{Binding RemoveSelectedCommand}">
+                            <StackPanel Orientation="Horizontal"
+                                        Spacing="6">
+                                <i:Icon Value="fa-solid fa-trash"
+                                        FontSize="12"
+                                        VerticalAlignment="Center" />
+                                <TextBlock Text="Remove" />
+                            </StackPanel>
+                        </Button>
+                    </Grid>
+
+                    <Grid Grid.Row="1">
+                        <TextBlock Text="No runners configured."
+                                   IsVisible="{Binding HasNoRunners}"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center"
+                                   Foreground="#667085" />
+
+                        <ListBox ItemsSource="{Binding Runners}"
+                                 SelectedItem="{Binding SelectedRunner}"
+                                 IsVisible="{Binding HasRunners}">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate DataType="vm:RunnerViewModel">
+                                    <Border Padding="8"
+                                            MinHeight="74">
+                                        <Grid RowDefinitions="Auto,Auto,Auto">
+                                            <TextBlock Grid.Row="0"
+                                                       Text="{Binding Header}"
+                                                       FontWeight="SemiBold"
+                                                       TextTrimming="CharacterEllipsis" />
+                                            <Border Grid.Row="1"
+                                                    HorizontalAlignment="Left"
+                                                    Margin="0,3,0,2"
+                                                    Padding="7,2"
+                                                    CornerRadius="4"
+                                                    Background="{Binding StatusBackground}"
+                                                    BorderBrush="{Binding StatusBorderBrush}"
+                                                    BorderThickness="1">
+                                                <Grid ColumnDefinitions="Auto,Auto"
+                                                      ColumnSpacing="5">
+                                                    <i:Icon Grid.Column="0"
+                                                            Value="{Binding StatusIconValue}"
+                                                            Foreground="{Binding StatusForeground}"
+                                                            FontSize="10"
+                                                            VerticalAlignment="Center" />
+                                                    <TextBlock Grid.Column="1"
+                                                               Text="{Binding StatusText}"
+                                                               Foreground="{Binding StatusForeground}"
+                                                               FontSize="11"
+                                                               FontWeight="SemiBold" />
+                                                </Grid>
+                                            </Border>
+                                            <TextBlock Grid.Row="2"
+                                                       Text="{Binding WorkingDirectory}"
+                                                       Opacity="0.78"
+                                                       FontSize="12"
+                                                       TextTrimming="CharacterEllipsis" />
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </Grid>
+
+                    <TextBlock Grid.Row="2"
+                               Text="{Binding StatusMessage}"
+                               Margin="0,10,0,0"
+                               Foreground="#475467"
+                               TextWrapping="Wrap" />
+                </Grid>
+            </Border>
+
+            <Grid Grid.Column="1"
+                  RowDefinitions="Auto,Auto,*"
+                  IsEnabled="{Binding HasSelectedRunner}">
+                <Border Grid.Row="0"
+                        BorderBrush="#D0D7DE"
+                        BorderThickness="0,0,0,1"
+                        Padding="16,12">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <StackPanel Grid.Column="0"
+                                    Spacing="2">
+                            <StackPanel Orientation="Horizontal"
+                                        Spacing="8">
+                                <TextBlock Text="{Binding SelectedRunner.Header}"
+                                           FontSize="18"
+                                           FontWeight="SemiBold"
+                                           TextTrimming="CharacterEllipsis"
+                                           VerticalAlignment="Center" />
+                                <Border Padding="8,3"
+                                        CornerRadius="4"
+                                        Background="{Binding SelectedRunner.StatusBackground}"
+                                        BorderBrush="{Binding SelectedRunner.StatusBorderBrush}"
+                                        BorderThickness="1"
+                                        VerticalAlignment="Center">
+                                    <Grid ColumnDefinitions="Auto,Auto"
+                                          ColumnSpacing="6">
+                                        <i:Icon Grid.Column="0"
+                                                Value="{Binding SelectedRunner.StatusIconValue}"
+                                                Foreground="{Binding SelectedRunner.StatusForeground}"
+                                                FontSize="11"
+                                                VerticalAlignment="Center" />
+                                        <TextBlock Grid.Column="1"
+                                                   Text="{Binding SelectedRunner.StatusText}"
+                                                   Foreground="{Binding SelectedRunner.StatusForeground}"
+                                                   FontSize="12"
+                                                   FontWeight="SemiBold" />
+                                    </Grid>
+                                </Border>
+                            </StackPanel>
+                            <TextBlock Text="{Binding SelectedRunner.ProcessText}"
+                                       Foreground="#667085"
+                                       FontSize="12" />
+                        </StackPanel>
+
+                        <StackPanel Grid.Column="1"
+                                    Orientation="Horizontal"
+                                    Spacing="8"
+                                    VerticalAlignment="Center">
+                            <Button Command="{Binding RunSelectedCommand}">
+                                <StackPanel Orientation="Horizontal"
+                                            Spacing="6">
+                                    <i:Icon Value="{Binding SelectedRunner.PrimaryRunIconValue}"
+                                            FontSize="12"
+                                            VerticalAlignment="Center" />
+                                    <TextBlock Text="{Binding SelectedRunner.PrimaryRunText}" />
+                                </StackPanel>
+                            </Button>
+                            <Button Command="{Binding StopSelectedCommand}">
+                                <StackPanel Orientation="Horizontal"
+                                            Spacing="6">
+                                    <i:Icon Value="fa-solid fa-stop"
+                                            FontSize="12"
+                                            VerticalAlignment="Center" />
+                                    <TextBlock Text="Stop" />
+                                </StackPanel>
+                            </Button>
+                            <Button Command="{Binding SelectedRunner.ShowFailureDetailsCommand}"
+                                    IsVisible="{Binding SelectedRunner.HasFailureDetails}">
+                                <StackPanel Orientation="Horizontal"
+                                            Spacing="6">
+                                    <i:Icon Value="fa-solid fa-triangle-exclamation"
+                                            FontSize="12"
+                                            VerticalAlignment="Center" />
+                                    <TextBlock Text="Failure details" />
+                                </StackPanel>
+                            </Button>
+                            <Button Command="{Binding SaveConfigCommand}">
+                                <StackPanel Orientation="Horizontal"
+                                            Spacing="6">
+                                    <i:Icon Value="fa-solid fa-floppy-disk"
+                                            FontSize="12"
+                                            VerticalAlignment="Center" />
+                                    <TextBlock Text="Save" />
+                                </StackPanel>
+                            </Button>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+
+                <Border Grid.Row="1"
+                        IsVisible="{Binding SelectedRunner.IsFailureDetailsVisible}"
+                        Margin="16,12,16,0"
+                        Padding="12"
+                        CornerRadius="6"
+                        Background="#2A1111"
+                        BorderBrush="#EF4444"
+                        BorderThickness="1">
+                    <Grid RowDefinitions="Auto,Auto">
+                        <Grid Grid.Row="0"
+                              ColumnDefinitions="*,Auto"
+                              Margin="0,0,0,8">
+                            <StackPanel Grid.Column="0"
+                                        Orientation="Horizontal"
+                                        Spacing="8"
+                                        VerticalAlignment="Center">
+                                <i:Icon Value="fa-solid fa-triangle-exclamation"
+                                        Foreground="#FEF2F2"
+                                        FontSize="14"
+                                        VerticalAlignment="Center" />
+                                <TextBlock Text="Failure details"
+                                           FontWeight="SemiBold"
+                                           Foreground="#FEF2F2"
+                                           VerticalAlignment="Center" />
+                            </StackPanel>
+                            <Button Grid.Column="1"
+                                    Content="Hide"
+                                    Command="{Binding SelectedRunner.HideFailureDetailsCommand}" />
+                        </Grid>
+
+                        <TextBox Grid.Row="1"
+                                 Text="{Binding SelectedRunner.FailureDetailsText}"
+                                 IsReadOnly="True"
+                                 AcceptsReturn="True"
+                                 Height="140"
+                                 FontFamily="Consolas, Menlo, monospace"
+                                 TextWrapping="NoWrap"
+                                 ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                 ScrollViewer.HorizontalScrollBarVisibility="Auto" />
+                    </Grid>
+                </Border>
+
+                <Border Grid.Row="2"
+                        Padding="16">
+                    <Grid ColumnDefinitions="*,*"
+                          RowDefinitions="Auto,Auto,Auto,Auto"
+                          ColumnSpacing="14"
+                          RowSpacing="10">
+                        <StackPanel Grid.Row="0"
+                                    Grid.Column="0"
+                                    Spacing="4">
+                            <TextBlock Text="Name"
+                                       FontWeight="SemiBold" />
+                            <TextBox Text="{Binding SelectedRunner.DisplayName}" />
+                        </StackPanel>
+
+                        <StackPanel Grid.Row="0"
+                                    Grid.Column="1"
+                                    Spacing="4">
+                            <TextBlock Text="Type"
+                                       FontWeight="SemiBold" />
+                            <TextBox Text="{Binding SelectedRunner.Type}"
+                                     IsReadOnly="True" />
+                        </StackPanel>
+
+                        <StackPanel Grid.Row="1"
+                                    Grid.Column="0"
+                                    Grid.ColumnSpan="2"
+                                    Spacing="4">
+                            <TextBlock Text="Working directory"
+                                       FontWeight="SemiBold" />
+                            <Grid ColumnDefinitions="*,Auto"
+                                  ColumnSpacing="8">
+                                <TextBox Grid.Column="0"
+                                         Text="{Binding SelectedRunner.WorkingDirectory}" />
+                                <Button Grid.Column="1"
+                                        Command="{Binding BrowseWorkingDirectoryCommand}">
+                                    <StackPanel Orientation="Horizontal"
+                                                Spacing="6">
+                                        <i:Icon Value="fa-solid fa-folder-open"
+                                                FontSize="12"
+                                                VerticalAlignment="Center" />
+                                        <TextBlock Text="Browse" />
+                                    </StackPanel>
+                                </Button>
+                            </Grid>
+                        </StackPanel>
+
+                        <StackPanel Grid.Row="2"
+                                    Grid.Column="0"
+                                    Spacing="4">
+                            <TextBlock Text="Project path"
+                                       FontWeight="SemiBold" />
+                            <TextBox PlaceholderText="Optional .csproj path or project folder"
+                                     Text="{Binding SelectedRunner.Command}" />
+                        </StackPanel>
+
+                        <StackPanel Grid.Row="2"
+                                    Grid.Column="1"
+                                    Spacing="4">
+                            <TextBlock Text="Arguments"
+                                       FontWeight="SemiBold" />
+                            <TextBox PlaceholderText="Optional dotnet run arguments"
+                                     Text="{Binding SelectedRunner.Arguments}" />
+                        </StackPanel>
+
+                        <StackPanel Grid.Row="3"
+                                    Grid.Column="0"
+                                    Grid.ColumnSpan="2"
+                                    Spacing="4">
+                            <TextBlock Text="Environment variables"
+                                       FontWeight="SemiBold" />
+                            <TextBox PlaceholderText="KEY=value, one per line"
+                                     Text="{Binding SelectedRunner.EnvironmentVariablesText}"
+                                     AcceptsReturn="True"
+                                     Height="74"
+                                     TextWrapping="NoWrap"
+                                     ScrollViewer.VerticalScrollBarVisibility="Auto" />
+                        </StackPanel>
+                    </Grid>
+                </Border>
+            </Grid>
+        </Grid>
+    </Grid>
+</Window>
