@@ -65,6 +65,81 @@ public sealed class MainWindowViewModelTests
     }
 
     [Fact]
+    public async Task CloneSelectedCommand_CopiesSelectedRunnerConfigurationSelectsCloneAndSavesConfig()
+    {
+        using var directory = TempDirectory.Create();
+        var sourceDefinition = new RunnerDefinition
+        {
+            Id = "source-runner",
+            DisplayName = "API",
+            Type = RunnerType.DotNetProject,
+            WorkingDirectory = directory.Path,
+            Command = "Api.csproj",
+            Arguments = "--urls http://localhost:5005",
+            EnvironmentVariables =
+            {
+                ["ASPNETCORE_ENVIRONMENT"] = "Development"
+            }
+        };
+        var configStore = CreateConfigStore(
+            directory.Path,
+            sourceDefinition,
+            CreateRunnerDefinition("Worker", directory.Path));
+        var viewModel = new MainWindowViewModel(
+            configStore,
+            new RunnerFactory(),
+            new FakeWorkingDirectoryPicker(null),
+            new FakeRunnerRemovalConfirmation(false));
+        await viewModel.LoadAsync();
+
+        await viewModel.CloneSelectedCommand.ExecuteAsync(null);
+
+        Assert.Equal(3, viewModel.Runners.Count);
+        Assert.Equal("API", viewModel.Runners[0].DisplayName);
+        Assert.Equal("Worker", viewModel.Runners[2].DisplayName);
+
+        var clone = viewModel.Runners[1];
+        Assert.Same(clone, viewModel.SelectedRunner);
+        Assert.True(viewModel.IsEditMode);
+        Assert.Equal("Cloned runner.", viewModel.StatusMessage);
+        Assert.Equal("API (Clone)", clone.DisplayName);
+        Assert.Equal(RunnerType.DotNetProject, clone.Type);
+        Assert.Equal(directory.Path, clone.WorkingDirectory);
+        Assert.Equal("Api.csproj", clone.Command);
+        Assert.Equal("--urls http://localhost:5005", clone.Arguments);
+        Assert.Equal("Development", clone.Definition.EnvironmentVariables["ASPNETCORE_ENVIRONMENT"]);
+        Assert.False(string.IsNullOrWhiteSpace(clone.Id));
+        Assert.NotEqual("source-runner", clone.Id);
+
+        clone.Definition.EnvironmentVariables["ASPNETCORE_ENVIRONMENT"] = "Production";
+        Assert.Equal(
+            "Development",
+            viewModel.Runners[0].Definition.EnvironmentVariables["ASPNETCORE_ENVIRONMENT"]);
+
+        var savedConfig = await configStore.LoadAsync();
+        Assert.Equal(3, savedConfig.Runners.Count);
+        Assert.Equal("API (Clone)", savedConfig.Runners[1].DisplayName);
+        Assert.Equal("source-runner", savedConfig.Runners[0].Id);
+        Assert.NotEqual("source-runner", savedConfig.Runners[1].Id);
+        Assert.Equal(
+            "Development",
+            savedConfig.Runners[1].EnvironmentVariables["ASPNETCORE_ENVIRONMENT"]);
+    }
+
+    [Fact]
+    public void CloneSelectedCommand_WhenNoRunnerSelected_IsNotExecutable()
+    {
+        using var directory = TempDirectory.Create();
+        var viewModel = new MainWindowViewModel(
+            new RunnerConfigStore(Path.Combine(directory.Path, "settings.json")),
+            new RunnerFactory(),
+            new FakeWorkingDirectoryPicker(directory.Path),
+            new FakeRunnerRemovalConfirmation(true));
+
+        Assert.False(viewModel.CloneSelectedCommand.CanExecute(null));
+    }
+
+    [Fact]
     public async Task ToggleAlwaysOnTopCommand_TogglesAndSavesPreference()
     {
         using var directory = TempDirectory.Create();

@@ -210,6 +210,36 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
     }
 
     [RelayCommand(CanExecute = nameof(HasSelectedRunner))]
+    private async Task CloneSelectedAsync()
+    {
+        if (SelectedRunner is null)
+        {
+            return;
+        }
+
+        var source = SelectedRunner.Definition;
+        var definition = new RunnerDefinition
+        {
+            DisplayName = $"{source.DisplayName} (Clone)",
+            Type = source.Type,
+            WorkingDirectory = source.WorkingDirectory,
+            Command = source.Command,
+            Arguments = source.Arguments,
+            EnvironmentVariables = new Dictionary<string, string>(
+                source.EnvironmentVariables,
+                StringComparer.OrdinalIgnoreCase)
+        };
+
+        var selectedIndex = Runners.IndexOf(SelectedRunner);
+        var insertIndex = selectedIndex < 0 ? Runners.Count : selectedIndex + 1;
+        var runner = AddRunnerViewModel(definition, insertIndex);
+
+        SelectedRunner = runner;
+        IsEditMode = true;
+        await SaveConfigAsync("Cloned runner.");
+    }
+
+    [RelayCommand(CanExecute = nameof(HasSelectedRunner))]
     private async Task RemoveSelectedAsync()
     {
         if (SelectedRunner is null)
@@ -442,11 +472,20 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         await StartRunnerAsync(runner);
     }
 
-    private RunnerViewModel AddRunnerViewModel(RunnerDefinition definition)
+    private RunnerViewModel AddRunnerViewModel(RunnerDefinition definition, int? insertIndex = null)
     {
         var runner = new RunnerViewModel(definition, _runnerFactory);
         runner.PropertyChanged += OnRunnerPropertyChanged;
-        Runners.Add(runner);
+
+        if (insertIndex is { } index)
+        {
+            Runners.Insert(index, runner);
+        }
+        else
+        {
+            Runners.Add(runner);
+        }
+
         return runner;
     }
 
@@ -497,6 +536,7 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         OnPropertyChanged(nameof(CanRunSelected));
 
         AddRunnerCommand.NotifyCanExecuteChanged();
+        CloneSelectedCommand.NotifyCanExecuteChanged();
         RemoveSelectedCommand.NotifyCanExecuteChanged();
         BrowseWorkingDirectoryCommand.NotifyCanExecuteChanged();
         StartSelectedCommand.NotifyCanExecuteChanged();
