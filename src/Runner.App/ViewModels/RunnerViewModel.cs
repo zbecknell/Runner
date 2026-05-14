@@ -1,6 +1,7 @@
 using Avalonia.Media;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.Input;
+using Optris.Icons.Avalonia;
 using Runner.Core.Runners;
 
 namespace Runner.App.ViewModels;
@@ -131,8 +132,10 @@ public sealed partial class RunnerViewModel : ViewModelBase, IAsyncDisposable
                 OnPropertyChanged(nameof(StatusForegroundColor));
                 OnPropertyChanged(nameof(StatusBorderColor));
                 OnPropertyChanged(nameof(StatusIconValue));
+                OnPropertyChanged(nameof(StatusIconAnimation));
                 OnPropertyChanged(nameof(PrimaryRunText));
                 OnPropertyChanged(nameof(PrimaryRunIconValue));
+                OnPropertyChanged(nameof(PrimaryRunIconAnimation));
                 OnPropertyChanged(nameof(PrimaryRunToolTip));
                 OnPropertyChanged(nameof(CanStart));
                 OnPropertyChanged(nameof(CanStop));
@@ -192,6 +195,10 @@ public sealed partial class RunnerViewModel : ViewModelBase, IAsyncDisposable
         _ => "fa-solid fa-circle"
     };
 
+    public IconAnimation StatusIconAnimation => IsSpinnerStatus
+        ? IconAnimation.Spin
+        : IconAnimation.None;
+
     public string PrimaryRunText => Status switch
     {
         RunnerStatus.Running => "Restart",
@@ -207,6 +214,10 @@ public sealed partial class RunnerViewModel : ViewModelBase, IAsyncDisposable
         RunnerStatus.Restoring or RunnerStatus.Building or RunnerStatus.Starting => "fa-solid fa-spinner",
         _ => "fa-solid fa-play"
     };
+
+    public IconAnimation PrimaryRunIconAnimation => IsSpinnerStatus
+        ? IconAnimation.Spin
+        : IconAnimation.None;
 
     public string PrimaryRunToolTip => Status switch
     {
@@ -239,6 +250,8 @@ public sealed partial class RunnerViewModel : ViewModelBase, IAsyncDisposable
     public bool CanRestart => Status is RunnerStatus.Running or RunnerStatus.Failed or RunnerStatus.Stopped;
 
     public bool CanRunPrimary => Status is RunnerStatus.Running or RunnerStatus.Failed or RunnerStatus.Stopped;
+
+    private bool IsSpinnerStatus => Status is RunnerStatus.Restoring or RunnerStatus.Building or RunnerStatus.Starting;
 
     public bool HasFailureDetails => _runner.LastFailure is not null;
 

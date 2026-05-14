@@ -1,24 +1,26 @@
 using Runner.App.ViewModels;
 using Runner.Core.Runners;
+using Optris.Icons.Avalonia;
 
 namespace Runner.Core.Tests;
 
 public sealed class RunnerViewModelTests
 {
     [Theory]
-    [InlineData(RunnerStatus.Running, "#166534", "#ECFDF5", "#22C55E", "fa-solid fa-circle-play")]
-    [InlineData(RunnerStatus.Failed, "#991B1B", "#FEF2F2", "#EF4444", "fa-solid fa-triangle-exclamation")]
-    [InlineData(RunnerStatus.Restoring, "#1D4ED8", "#EFF6FF", "#60A5FA", "fa-solid fa-spinner")]
-    [InlineData(RunnerStatus.Building, "#1D4ED8", "#EFF6FF", "#60A5FA", "fa-solid fa-spinner")]
-    [InlineData(RunnerStatus.Starting, "#1D4ED8", "#EFF6FF", "#60A5FA", "fa-solid fa-spinner")]
-    [InlineData(RunnerStatus.Stopping, "#92400E", "#FFFBEB", "#F59E0B", "fa-solid fa-circle-stop")]
-    [InlineData(RunnerStatus.Stopped, "#334155", "#F8FAFC", "#64748B", "fa-solid fa-circle")]
+    [InlineData(RunnerStatus.Running, "#166534", "#ECFDF5", "#22C55E", "fa-solid fa-circle-play", IconAnimation.None)]
+    [InlineData(RunnerStatus.Failed, "#991B1B", "#FEF2F2", "#EF4444", "fa-solid fa-triangle-exclamation", IconAnimation.None)]
+    [InlineData(RunnerStatus.Restoring, "#1D4ED8", "#EFF6FF", "#60A5FA", "fa-solid fa-spinner", IconAnimation.Spin)]
+    [InlineData(RunnerStatus.Building, "#1D4ED8", "#EFF6FF", "#60A5FA", "fa-solid fa-spinner", IconAnimation.Spin)]
+    [InlineData(RunnerStatus.Starting, "#1D4ED8", "#EFF6FF", "#60A5FA", "fa-solid fa-spinner", IconAnimation.Spin)]
+    [InlineData(RunnerStatus.Stopping, "#92400E", "#FFFBEB", "#F59E0B", "fa-solid fa-circle-stop", IconAnimation.None)]
+    [InlineData(RunnerStatus.Stopped, "#334155", "#F8FAFC", "#64748B", "fa-solid fa-circle", IconAnimation.None)]
     public void StatusColorProperties_MapStatusToExpectedColors(
         RunnerStatus status,
         string expectedBackground,
         string expectedForeground,
         string expectedBorder,
-        string expectedIcon)
+        string expectedIcon,
+        IconAnimation expectedIconAnimation)
     {
         var viewModel = CreateViewModel(new FakeRunner(status));
 
@@ -26,20 +28,22 @@ public sealed class RunnerViewModelTests
         Assert.Equal(expectedForeground, viewModel.StatusForegroundColor);
         Assert.Equal(expectedBorder, viewModel.StatusBorderColor);
         Assert.Equal(expectedIcon, viewModel.StatusIconValue);
+        Assert.Equal(expectedIconAnimation, viewModel.StatusIconAnimation);
     }
 
     [Theory]
-    [InlineData(RunnerStatus.Running, "Restart", "fa-solid fa-rotate-right", "Restart", true)]
-    [InlineData(RunnerStatus.Failed, "Start", "fa-solid fa-play", "Start", true)]
-    [InlineData(RunnerStatus.Stopped, "Start", "fa-solid fa-play", "Start", true)]
-    [InlineData(RunnerStatus.Restoring, "Restoring", "fa-solid fa-spinner", "Restoring", false)]
-    [InlineData(RunnerStatus.Building, "Building", "fa-solid fa-spinner", "Building", false)]
-    [InlineData(RunnerStatus.Starting, "Starting", "fa-solid fa-spinner", "Starting", false)]
-    [InlineData(RunnerStatus.Stopping, "Start", "fa-solid fa-play", "Start", false)]
+    [InlineData(RunnerStatus.Running, "Restart", "fa-solid fa-rotate-right", IconAnimation.None, "Restart", true)]
+    [InlineData(RunnerStatus.Failed, "Start", "fa-solid fa-play", IconAnimation.None, "Start", true)]
+    [InlineData(RunnerStatus.Stopped, "Start", "fa-solid fa-play", IconAnimation.None, "Start", true)]
+    [InlineData(RunnerStatus.Restoring, "Restoring", "fa-solid fa-spinner", IconAnimation.Spin, "Restoring", false)]
+    [InlineData(RunnerStatus.Building, "Building", "fa-solid fa-spinner", IconAnimation.Spin, "Building", false)]
+    [InlineData(RunnerStatus.Starting, "Starting", "fa-solid fa-spinner", IconAnimation.Spin, "Starting", false)]
+    [InlineData(RunnerStatus.Stopping, "Start", "fa-solid fa-play", IconAnimation.None, "Start", false)]
     public void PrimaryRunProperties_MapStatusToExpectedAction(
         RunnerStatus status,
         string expectedText,
         string expectedIcon,
+        IconAnimation expectedIconAnimation,
         string expectedToolTip,
         bool expectedCanRun)
     {
@@ -47,6 +51,7 @@ public sealed class RunnerViewModelTests
 
         Assert.Equal(expectedText, viewModel.PrimaryRunText);
         Assert.Equal(expectedIcon, viewModel.PrimaryRunIconValue);
+        Assert.Equal(expectedIconAnimation, viewModel.PrimaryRunIconAnimation);
         Assert.Equal(expectedToolTip, viewModel.PrimaryRunToolTip);
         Assert.Equal(expectedCanRun, viewModel.CanRunPrimary);
     }
