@@ -56,15 +56,18 @@ public sealed class DotNetProjectRunner : IRunner
         }
     }
 
-    public Task StartAsync(CancellationToken cancellationToken = default)
+    public async Task StartAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
         lock (_sync)
         {
-            if (_status is RunnerStatus.Starting or RunnerStatus.Running)
+            if (_status is RunnerStatus.Restoring
+                or RunnerStatus.Building
+                or RunnerStatus.Starting
+                or RunnerStatus.Running)
             {
-                return Task.CompletedTask;
+                return;
             }
         }
 
@@ -72,9 +75,38 @@ public sealed class DotNetProjectRunner : IRunner
         {
             ResetRunDiagnostics();
             RunnerDefinitionValidator.ThrowIfInvalid(Definition);
-            SetStatus(RunnerStatus.Starting);
+        }
+        catch (Exception ex)
+        {
+            SetFailure("Start failed.", exitCode: null, exception: ex);
+            SetStatus(RunnerStatus.Failed);
+            throw;
+        }
 
-            var startInfo = CreateStartInfo(Definition);
+        if (!await RunPhaseAsync(
+            RunnerStatus.Restoring,
+            "Restore failed.",
+            CreateRestoreStartInfo(Definition),
+            cancellationToken))
+        {
+            return;
+        }
+
+        if (!await RunPhaseAsync(
+            RunnerStatus.Building,
+            "Build failed.",
+            CreateBuildStartInfo(Definition),
+            cancellationToken))
+        {
+            return;
+        }
+
+        ClearDiagnostics();
+        SetStatus(RunnerStatus.Starting);
+
+        try
+        {
+            var startInfo = CreateRunStartInfo(Definition);
             var process = new Process
             {
                 StartInfo = startInfo,
@@ -107,8 +139,6 @@ public sealed class DotNetProjectRunner : IRunner
             {
                 SetStatus(RunnerStatus.Running);
             }
-
-            return Task.CompletedTask;
         }
         catch (Exception ex)
         {
@@ -195,7 +225,11 @@ public sealed class DotNetProjectRunner : IRunner
 
     public async ValueTask DisposeAsync()
     {
-        if (Status is RunnerStatus.Running or RunnerStatus.Starting or RunnerStatus.Stopping)
+        if (Status is RunnerStatus.Restoring
+            or RunnerStatus.Building
+            or RunnerStatus.Starting
+            or RunnerStatus.Running
+            or RunnerStatus.Stopping)
         {
             await StopAsync();
         }
@@ -207,7 +241,160 @@ public sealed class DotNetProjectRunner : IRunner
         }
     }
 
-    private static ProcessStartInfo CreateStartInfo(RunnerDefinition definition)
+    private async Task<bool> RunPhaseAsync(
+        RunnerStatus status,
+        string failureReason,
+        ProcessStartInfo startInfo,
+        CancellationToken cancellationToken)
+    {
+        ClearDiagnostics();
+
+        Process? process = null;
+
+        try
+        {
+            process = new Process
+            {
+                StartInfo = startInfo,
+                EnableRaisingEvents = true
+            };
+
+            process.OutputDataReceived += (_, args) => AddDiagnosticLine("out", args.Data);
+            process.ErrorDataReceived += (_, args) => AddDiagnosticLine("err", args.Data);
+
+            if (!process.Start())
+            {
+                process.Dispose();
+                throw new InvalidOperationException("The dotnet process did not start.");
+            }
+
+            lock (_sync)
+            {
+                _process = process;
+            }
+
+            SetStatus(status);
+            process.BeginOutputReadLine();
+            process.BeginErrorReadLine();
+            await process.WaitForExitAsync(cancellationToken);
+
+            var exitCode = process.ExitCode;
+
+            lock (_sync)
+            {
+                if (ReferenceEquals(_process, process))
+                {
+                    _process = null;
+                }
+            }
+
+            if (Status is RunnerStatus.Stopping or RunnerStatus.Stopped)
+            {
+                return false;
+            }
+
+            if (exitCode == 0)
+            {
+                return true;
+            }
+
+            SetFailure(failureReason, exitCode, exception: null);
+            SetStatus(RunnerStatus.Failed);
+            throw new InvalidOperationException($"{failureReason} dotnet exited with code {exitCode}.");
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            if (Status == RunnerStatus.Failed)
+            {
+                throw;
+            }
+
+            if (Status is RunnerStatus.Stopping or RunnerStatus.Stopped)
+            {
+                return false;
+            }
+
+            SetFailure(failureReason, exitCode: null, exception: ex);
+            SetStatus(RunnerStatus.Failed);
+            throw;
+        }
+        catch (OperationCanceledException)
+        {
+            TryKillProcess(process);
+            SetStatus(RunnerStatus.Stopped);
+            throw;
+        }
+        finally
+        {
+            if (process is not null)
+            {
+                lock (_sync)
+                {
+                    if (ReferenceEquals(_process, process))
+                    {
+                        _process = null;
+                    }
+                }
+
+                process.Dispose();
+            }
+        }
+    }
+
+    private static void TryKillProcess(Process? process)
+    {
+        try
+        {
+            if (process is not null && !process.HasExited)
+            {
+                process.Kill(entireProcessTree: true);
+            }
+        }
+        catch (InvalidOperationException)
+        {
+            // Already exited.
+        }
+    }
+
+    private static ProcessStartInfo CreateRestoreStartInfo(RunnerDefinition definition)
+    {
+        var startInfo = CreateDotNetStartInfo(definition);
+        startInfo.ArgumentList.Add("restore");
+        AddProjectTarget(startInfo, definition);
+        return startInfo;
+    }
+
+    private static ProcessStartInfo CreateBuildStartInfo(RunnerDefinition definition)
+    {
+        var startInfo = CreateDotNetStartInfo(definition);
+        startInfo.ArgumentList.Add("build");
+        AddProjectTarget(startInfo, definition);
+        startInfo.ArgumentList.Add("--no-restore");
+        return startInfo;
+    }
+
+    private static ProcessStartInfo CreateRunStartInfo(RunnerDefinition definition)
+    {
+        var startInfo = CreateDotNetStartInfo(definition);
+        startInfo.ArgumentList.Add("run");
+
+        if (!string.IsNullOrWhiteSpace(definition.Command))
+        {
+            startInfo.ArgumentList.Add("--project");
+            startInfo.ArgumentList.Add(definition.Command);
+        }
+
+        startInfo.ArgumentList.Add("--no-build");
+
+        foreach (var argument in CommandLineTokenizer.Split(definition.Arguments))
+        {
+            startInfo.ArgumentList.Add(argument);
+        }
+
+        return startInfo;
+    }
+
+    private static ProcessStartInfo CreateDotNetStartInfo(RunnerDefinition definition)
     {
         var startInfo = new ProcessStartInfo
         {
@@ -220,25 +407,20 @@ public sealed class DotNetProjectRunner : IRunner
             CreateNoWindow = true
         };
 
-        startInfo.ArgumentList.Add("run");
-
-        if (!string.IsNullOrWhiteSpace(definition.Command))
-        {
-            startInfo.ArgumentList.Add("--project");
-            startInfo.ArgumentList.Add(definition.Command);
-        }
-
-        foreach (var argument in CommandLineTokenizer.Split(definition.Arguments))
-        {
-            startInfo.ArgumentList.Add(argument);
-        }
-
         foreach (var (key, value) in definition.EnvironmentVariables)
         {
             startInfo.Environment[key] = value;
         }
 
         return startInfo;
+    }
+
+    private static void AddProjectTarget(ProcessStartInfo startInfo, RunnerDefinition definition)
+    {
+        if (!string.IsNullOrWhiteSpace(definition.Command))
+        {
+            startInfo.ArgumentList.Add(definition.Command);
+        }
     }
 
     private void HandleProcessExited(Process process)
@@ -330,6 +512,14 @@ public sealed class DotNetProjectRunner : IRunner
         {
             _diagnosticTail.Clear();
             _lastFailure = null;
+        }
+    }
+
+    private void ClearDiagnostics()
+    {
+        lock (_sync)
+        {
+            _diagnosticTail.Clear();
         }
     }
 

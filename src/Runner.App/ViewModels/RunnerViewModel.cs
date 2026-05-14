@@ -160,7 +160,7 @@ public sealed partial class RunnerViewModel : ViewModelBase, IAsyncDisposable
     {
         RunnerStatus.Running => "#166534",
         RunnerStatus.Failed => "#991B1B",
-        RunnerStatus.Starting => "#1D4ED8",
+        RunnerStatus.Restoring or RunnerStatus.Building or RunnerStatus.Starting => "#1D4ED8",
         RunnerStatus.Stopping => "#92400E",
         _ => "#334155"
     };
@@ -169,7 +169,7 @@ public sealed partial class RunnerViewModel : ViewModelBase, IAsyncDisposable
     {
         RunnerStatus.Running => "#ECFDF5",
         RunnerStatus.Failed => "#FEF2F2",
-        RunnerStatus.Starting => "#EFF6FF",
+        RunnerStatus.Restoring or RunnerStatus.Building or RunnerStatus.Starting => "#EFF6FF",
         RunnerStatus.Stopping => "#FFFBEB",
         _ => "#F8FAFC"
     };
@@ -178,7 +178,7 @@ public sealed partial class RunnerViewModel : ViewModelBase, IAsyncDisposable
     {
         RunnerStatus.Running => "#22C55E",
         RunnerStatus.Failed => "#EF4444",
-        RunnerStatus.Starting => "#60A5FA",
+        RunnerStatus.Restoring or RunnerStatus.Building or RunnerStatus.Starting => "#60A5FA",
         RunnerStatus.Stopping => "#F59E0B",
         _ => "#64748B"
     };
@@ -187,18 +187,35 @@ public sealed partial class RunnerViewModel : ViewModelBase, IAsyncDisposable
     {
         RunnerStatus.Running => "fa-solid fa-circle-play",
         RunnerStatus.Failed => "fa-solid fa-triangle-exclamation",
-        RunnerStatus.Starting => "fa-solid fa-spinner",
+        RunnerStatus.Restoring or RunnerStatus.Building or RunnerStatus.Starting => "fa-solid fa-spinner",
         RunnerStatus.Stopping => "fa-solid fa-circle-stop",
         _ => "fa-solid fa-circle"
     };
 
-    public string PrimaryRunText => Status == RunnerStatus.Running ? "Restart" : "Start";
+    public string PrimaryRunText => Status switch
+    {
+        RunnerStatus.Running => "Restart",
+        RunnerStatus.Restoring => "Restoring",
+        RunnerStatus.Building => "Building",
+        RunnerStatus.Starting => "Starting",
+        _ => "Start"
+    };
 
-    public string PrimaryRunIconValue => Status == RunnerStatus.Running
-        ? "fa-solid fa-rotate-right"
-        : "fa-solid fa-play";
+    public string PrimaryRunIconValue => Status switch
+    {
+        RunnerStatus.Running => "fa-solid fa-rotate-right",
+        RunnerStatus.Restoring or RunnerStatus.Building or RunnerStatus.Starting => "fa-solid fa-spinner",
+        _ => "fa-solid fa-play"
+    };
 
-    public string PrimaryRunToolTip => Status == RunnerStatus.Running ? "Restart" : "Start";
+    public string PrimaryRunToolTip => Status switch
+    {
+        RunnerStatus.Running => "Restart",
+        RunnerStatus.Restoring => "Restoring",
+        RunnerStatus.Building => "Building",
+        RunnerStatus.Starting => "Starting",
+        _ => "Start"
+    };
 
     public IBrush StatusBackground => ToBrush(StatusBackgroundColor);
 
@@ -214,7 +231,10 @@ public sealed partial class RunnerViewModel : ViewModelBase, IAsyncDisposable
 
     public bool CanStart => Status is RunnerStatus.Stopped or RunnerStatus.Failed;
 
-    public bool CanStop => Status is RunnerStatus.Starting or RunnerStatus.Running;
+    public bool CanStop => Status is RunnerStatus.Restoring
+        or RunnerStatus.Building
+        or RunnerStatus.Starting
+        or RunnerStatus.Running;
 
     public bool CanRestart => Status is RunnerStatus.Running or RunnerStatus.Failed or RunnerStatus.Stopped;
 

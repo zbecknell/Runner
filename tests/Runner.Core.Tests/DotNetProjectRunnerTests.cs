@@ -16,6 +16,8 @@ public sealed class DotNetProjectRunnerTests
             Type = RunnerType.DotNetProject,
             WorkingDirectory = directory.Path
         });
+        var observedStatuses = new List<RunnerStatus>();
+        runner.StatusChanged += (_, status) => observedStatuses.Add(status);
 
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
 
@@ -29,6 +31,15 @@ public sealed class DotNetProjectRunnerTests
 
             Assert.Equal(RunnerStatus.Running, runner.Status);
             Assert.NotNull(runner.ProcessId);
+            Assert.Contains(RunnerStatus.Restoring, observedStatuses);
+            Assert.Contains(RunnerStatus.Building, observedStatuses);
+            Assert.Contains(RunnerStatus.Running, observedStatuses);
+            Assert.True(
+                observedStatuses.IndexOf(RunnerStatus.Restoring)
+                    < observedStatuses.IndexOf(RunnerStatus.Building));
+            Assert.True(
+                observedStatuses.IndexOf(RunnerStatus.Building)
+                    < observedStatuses.IndexOf(RunnerStatus.Running));
 
             await runner.StopAsync(timeout.Token);
 
@@ -38,7 +49,10 @@ public sealed class DotNetProjectRunnerTests
         }
         finally
         {
-            if (runner.Status is RunnerStatus.Starting or RunnerStatus.Running)
+            if (runner.Status is RunnerStatus.Restoring
+                or RunnerStatus.Building
+                or RunnerStatus.Starting
+                or RunnerStatus.Running)
             {
                 await runner.StopAsync(CancellationToken.None);
             }
@@ -60,6 +74,50 @@ public sealed class DotNetProjectRunnerTests
         Assert.NotNull(runner.LastFailure);
         Assert.Equal("Start failed.", runner.LastFailure.Reason);
         Assert.Contains("Working directory does not exist", runner.LastFailure.ExceptionMessage);
+    }
+
+    [Fact]
+    public async Task StartAsync_WhenRestoreFails_MarksRunnerFailedAndCapturesDiagnostics()
+    {
+        using var directory = TempDirectory.Create();
+        CreateInvalidProjectFile(directory.Path);
+
+        await using var runner = new DotNetProjectRunner(new RunnerDefinition
+        {
+            DisplayName = "Restore failure",
+            Type = RunnerType.DotNetProject,
+            WorkingDirectory = directory.Path
+        });
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => runner.StartAsync());
+
+        var failure = Assert.IsType<RunnerFailureDetails>(runner.LastFailure);
+        Assert.Equal(RunnerStatus.Failed, runner.Status);
+        Assert.Equal("Restore failed.", failure.Reason);
+        Assert.NotNull(failure.ExitCode);
+        Assert.NotEmpty(failure.DiagnosticLines);
+    }
+
+    [Fact]
+    public async Task StartAsync_WhenBuildFails_MarksRunnerFailedAndCapturesDiagnostics()
+    {
+        using var directory = TempDirectory.Create();
+        CreateBuildFailingProject(directory.Path);
+
+        await using var runner = new DotNetProjectRunner(new RunnerDefinition
+        {
+            DisplayName = "Build failure",
+            Type = RunnerType.DotNetProject,
+            WorkingDirectory = directory.Path
+        });
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => runner.StartAsync());
+
+        var failure = Assert.IsType<RunnerFailureDetails>(runner.LastFailure);
+        Assert.Equal(RunnerStatus.Failed, runner.Status);
+        Assert.Equal("Build failed.", failure.Reason);
+        Assert.NotNull(failure.ExitCode);
+        Assert.Contains(failure.DiagnosticLines, line => line.Contains("CS", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
@@ -160,6 +218,28 @@ public sealed class DotNetProjectRunnerTests
             Console.WriteLine("all good");
             await Task.Delay(100);
             return 0;
+            """);
+    }
+
+    private static void CreateInvalidProjectFile(string directory)
+    {
+        File.WriteAllText(
+            Path.Combine(directory, "Sample.csproj"),
+            """
+            <Project Sdk="Microsoft.NET.Sdk">
+              <PropertyGroup>
+            </Project>
+            """);
+    }
+
+    private static void CreateBuildFailingProject(string directory)
+    {
+        CreateProjectFile(directory);
+
+        File.WriteAllText(
+            Path.Combine(directory, "Program.cs"),
+            """
+            Console.WriteLine("missing terminator)
             """);
     }
 

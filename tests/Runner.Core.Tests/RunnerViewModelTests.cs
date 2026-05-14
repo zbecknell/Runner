@@ -8,6 +8,8 @@ public sealed class RunnerViewModelTests
     [Theory]
     [InlineData(RunnerStatus.Running, "#166534", "#ECFDF5", "#22C55E", "fa-solid fa-circle-play")]
     [InlineData(RunnerStatus.Failed, "#991B1B", "#FEF2F2", "#EF4444", "fa-solid fa-triangle-exclamation")]
+    [InlineData(RunnerStatus.Restoring, "#1D4ED8", "#EFF6FF", "#60A5FA", "fa-solid fa-spinner")]
+    [InlineData(RunnerStatus.Building, "#1D4ED8", "#EFF6FF", "#60A5FA", "fa-solid fa-spinner")]
     [InlineData(RunnerStatus.Starting, "#1D4ED8", "#EFF6FF", "#60A5FA", "fa-solid fa-spinner")]
     [InlineData(RunnerStatus.Stopping, "#92400E", "#FFFBEB", "#F59E0B", "fa-solid fa-circle-stop")]
     [InlineData(RunnerStatus.Stopped, "#334155", "#F8FAFC", "#64748B", "fa-solid fa-circle")]
@@ -30,7 +32,9 @@ public sealed class RunnerViewModelTests
     [InlineData(RunnerStatus.Running, "Restart", "fa-solid fa-rotate-right", "Restart", true)]
     [InlineData(RunnerStatus.Failed, "Start", "fa-solid fa-play", "Start", true)]
     [InlineData(RunnerStatus.Stopped, "Start", "fa-solid fa-play", "Start", true)]
-    [InlineData(RunnerStatus.Starting, "Start", "fa-solid fa-play", "Start", false)]
+    [InlineData(RunnerStatus.Restoring, "Restoring", "fa-solid fa-spinner", "Restoring", false)]
+    [InlineData(RunnerStatus.Building, "Building", "fa-solid fa-spinner", "Building", false)]
+    [InlineData(RunnerStatus.Starting, "Starting", "fa-solid fa-spinner", "Starting", false)]
     [InlineData(RunnerStatus.Stopping, "Start", "fa-solid fa-play", "Start", false)]
     public void PrimaryRunProperties_MapStatusToExpectedAction(
         RunnerStatus status,
@@ -45,6 +49,23 @@ public sealed class RunnerViewModelTests
         Assert.Equal(expectedIcon, viewModel.PrimaryRunIconValue);
         Assert.Equal(expectedToolTip, viewModel.PrimaryRunToolTip);
         Assert.Equal(expectedCanRun, viewModel.CanRunPrimary);
+    }
+
+    [Theory]
+    [InlineData(RunnerStatus.Restoring, true)]
+    [InlineData(RunnerStatus.Building, true)]
+    [InlineData(RunnerStatus.Starting, true)]
+    [InlineData(RunnerStatus.Running, true)]
+    [InlineData(RunnerStatus.Stopping, false)]
+    [InlineData(RunnerStatus.Stopped, false)]
+    [InlineData(RunnerStatus.Failed, false)]
+    public void CanStop_IsEnabledOnlyForActiveStartAndRunPhases(
+        RunnerStatus status,
+        bool expectedCanStop)
+    {
+        var viewModel = CreateViewModel(new FakeRunner(status));
+
+        Assert.Equal(expectedCanStop, viewModel.CanStop);
     }
 
     [Fact]
