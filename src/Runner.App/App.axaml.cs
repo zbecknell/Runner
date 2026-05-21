@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Data.Core;
 using Avalonia.Data.Core.Plugins;
+using System.ComponentModel;
 using System.Linq;
 using Avalonia.Markup.Xaml;
 using Runner.App.Services;
@@ -23,16 +24,28 @@ public partial class App : Application
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
+            var configStore = new RunnerConfigStore(RunnerConfigStore.GetDefaultConfigPath());
             var mainWindow = new MainWindow();
             var viewModel = new MainWindowViewModel(
-                new RunnerConfigStore(RunnerConfigStore.GetDefaultConfigPath()),
+                configStore,
                 new RunnerFactory(),
                 new AvaloniaWorkingDirectoryPicker(mainWindow),
-                new AvaloniaRunnerRemovalConfirmation(mainWindow));
+                new AvaloniaRunnerRemovalConfirmation(mainWindow),
+                new VelopackAppUpdateService());
 
+            viewModel.PropertyChanged += OnMainWindowViewModelPropertyChanged;
             mainWindow.DataContext = viewModel;
             desktop.MainWindow = mainWindow;
             _ = viewModel.LoadAsync();
+
+            void OnMainWindowViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+            {
+                if (e.PropertyName == nameof(MainWindowViewModel.WindowPlacement))
+                {
+                    mainWindow.ApplyWindowPlacement(viewModel.WindowPlacement);
+                    viewModel.PropertyChanged -= OnMainWindowViewModelPropertyChanged;
+                }
+            }
         }
 
         base.OnFrameworkInitializationCompleted();

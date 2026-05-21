@@ -160,6 +160,191 @@ public sealed class MainWindowViewModelTests
     }
 
     [Fact]
+    public async Task LoadAsync_LoadsWindowPlacement()
+    {
+        using var directory = TempDirectory.Create();
+        var placement = new WindowPlacement
+        {
+            X = 320,
+            Y = 180,
+            Width = 1280,
+            Height = 760,
+            IsMaximized = true
+        };
+        var configStore = new RunnerConfigStore(Path.Combine(directory.Path, "settings.json"));
+        await configStore.SaveAsync(new RunnerConfig
+        {
+            WindowPlacement = placement,
+            Runners = [CreateRunnerDefinition("Test app", directory.Path)]
+        });
+        var viewModel = new MainWindowViewModel(
+            configStore,
+            new RunnerFactory(),
+            new FakeWorkingDirectoryPicker(null),
+            new FakeRunnerRemovalConfirmation(false));
+
+        await viewModel.LoadAsync();
+
+        Assert.NotNull(viewModel.WindowPlacement);
+        Assert.Equal(320, viewModel.WindowPlacement.X);
+        Assert.Equal(180, viewModel.WindowPlacement.Y);
+        Assert.Equal(1280, viewModel.WindowPlacement.Width);
+        Assert.Equal(760, viewModel.WindowPlacement.Height);
+        Assert.True(viewModel.WindowPlacement.IsMaximized);
+    }
+
+    [Fact]
+    public async Task SaveWindowPlacementAsync_PersistsPlacementWithoutDroppingConfig()
+    {
+        using var directory = TempDirectory.Create();
+        var configStore = CreateConfigStore(directory.Path);
+        var viewModel = new MainWindowViewModel(
+            configStore,
+            new RunnerFactory(),
+            new FakeWorkingDirectoryPicker(null),
+            new FakeRunnerRemovalConfirmation(false));
+        await viewModel.LoadAsync();
+        await viewModel.ToggleAlwaysOnTopCommand.ExecuteAsync(null);
+
+        await viewModel.SaveWindowPlacementAsync(new WindowPlacement
+        {
+            X = 48,
+            Y = 64,
+            Width = 1180,
+            Height = 840,
+            IsMaximized = false
+        });
+
+        var savedConfig = await configStore.LoadAsync();
+        Assert.True(savedConfig.AlwaysOnTop);
+        Assert.Single(savedConfig.Runners);
+        Assert.NotNull(savedConfig.WindowPlacement);
+        Assert.Equal(48, savedConfig.WindowPlacement.X);
+        Assert.Equal(64, savedConfig.WindowPlacement.Y);
+        Assert.Equal(1180, savedConfig.WindowPlacement.Width);
+        Assert.Equal(840, savedConfig.WindowPlacement.Height);
+        Assert.False(savedConfig.WindowPlacement.IsMaximized);
+    }
+
+    [Fact]
+    public async Task SaveConfigAsync_PreservesLoadedWindowPlacement()
+    {
+        using var directory = TempDirectory.Create();
+        var configStore = new RunnerConfigStore(Path.Combine(directory.Path, "settings.json"));
+        await configStore.SaveAsync(new RunnerConfig
+        {
+            WindowPlacement = new WindowPlacement
+            {
+                X = 24,
+                Y = 32,
+                Width = 1220,
+                Height = 780,
+                IsMaximized = true
+            },
+            Runners = [CreateRunnerDefinition("Test app", directory.Path)]
+        });
+        var viewModel = new MainWindowViewModel(
+            configStore,
+            new RunnerFactory(),
+            new FakeWorkingDirectoryPicker(null),
+            new FakeRunnerRemovalConfirmation(false));
+        await viewModel.LoadAsync();
+
+        await viewModel.ToggleAlwaysOnTopCommand.ExecuteAsync(null);
+
+        var savedConfig = await configStore.LoadAsync();
+        Assert.NotNull(savedConfig.WindowPlacement);
+        Assert.Equal(24, savedConfig.WindowPlacement.X);
+        Assert.Equal(32, savedConfig.WindowPlacement.Y);
+        Assert.Equal(1220, savedConfig.WindowPlacement.Width);
+        Assert.Equal(780, savedConfig.WindowPlacement.Height);
+        Assert.True(savedConfig.WindowPlacement.IsMaximized);
+    }
+
+    [Fact]
+    public async Task CheckForUpdatesAsync_WhenUpdateIsAvailable_ShowsUpdateAction()
+    {
+        using var directory = TempDirectory.Create();
+        var updateService = new FakeAppUpdateService(
+            AppUpdateCheckResult.Available("1.0.0", "1.1.0", isDownloaded: false));
+        var viewModel = new MainWindowViewModel(
+            new RunnerConfigStore(Path.Combine(directory.Path, "settings.json")),
+            new RunnerFactory(),
+            new FakeWorkingDirectoryPicker(null),
+            new FakeRunnerRemovalConfirmation(false),
+            updateService);
+
+        await viewModel.CheckForUpdatesAsync();
+
+        Assert.True(viewModel.IsUpdateAvailable);
+        Assert.True(viewModel.IsUpdateActionVisible);
+        Assert.True(viewModel.ApplyUpdateCommand.CanExecute(null));
+        Assert.Equal("1.1.0", viewModel.AvailableUpdateVersion);
+        Assert.Equal("Update 1.1.0", viewModel.UpdateActionText);
+        Assert.Equal("Update 1.1.0 is available.", viewModel.StatusMessage);
+    }
+
+    [Fact]
+    public async Task CheckForUpdatesAsync_WhenDownloadedUpdateIsPending_ShowsRestartAction()
+    {
+        using var directory = TempDirectory.Create();
+        var updateService = new FakeAppUpdateService(
+            AppUpdateCheckResult.Available("1.0.0", "1.1.0", isDownloaded: true));
+        var viewModel = new MainWindowViewModel(
+            new RunnerConfigStore(Path.Combine(directory.Path, "settings.json")),
+            new RunnerFactory(),
+            new FakeWorkingDirectoryPicker(null),
+            new FakeRunnerRemovalConfirmation(false),
+            updateService);
+
+        await viewModel.CheckForUpdatesAsync();
+
+        Assert.True(viewModel.IsUpdateDownloaded);
+        Assert.Equal("Restart to update", viewModel.UpdateActionText);
+    }
+
+    [Fact]
+    public async Task CheckForUpdatesAsync_WhenUpdatesUnsupported_HidesUpdateAction()
+    {
+        using var directory = TempDirectory.Create();
+        var updateService = new FakeAppUpdateService(
+            AppUpdateCheckResult.Unsupported("Updates are unavailable."));
+        var viewModel = new MainWindowViewModel(
+            new RunnerConfigStore(Path.Combine(directory.Path, "settings.json")),
+            new RunnerFactory(),
+            new FakeWorkingDirectoryPicker(null),
+            new FakeRunnerRemovalConfirmation(false),
+            updateService);
+
+        await viewModel.CheckForUpdatesAsync();
+
+        Assert.False(viewModel.IsUpdateAvailable);
+        Assert.False(viewModel.IsUpdateActionVisible);
+        Assert.False(viewModel.ApplyUpdateCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public async Task ApplyUpdateCommand_WhenUpdateIsAvailable_AppliesUpdate()
+    {
+        using var directory = TempDirectory.Create();
+        var updateService = new FakeAppUpdateService(
+            AppUpdateCheckResult.Available("1.0.0", "1.1.0", isDownloaded: false));
+        var viewModel = new MainWindowViewModel(
+            new RunnerConfigStore(Path.Combine(directory.Path, "settings.json")),
+            new RunnerFactory(),
+            new FakeWorkingDirectoryPicker(null),
+            new FakeRunnerRemovalConfirmation(false),
+            updateService);
+        await viewModel.CheckForUpdatesAsync();
+
+        await viewModel.ApplyUpdateCommand.ExecuteAsync(null);
+
+        Assert.Equal(1, updateService.ApplyCount);
+        Assert.Equal("Restarting to apply update...", viewModel.StatusMessage);
+        Assert.False(viewModel.IsUpdating);
+    }
+
+    [Fact]
     public async Task StartRunnerCommand_OperatesOnPassedRunnerInsteadOfSelectedRunner()
     {
         using var directory = TempDirectory.Create();
@@ -527,6 +712,31 @@ public sealed class MainWindowViewModelTests
         {
             LastRunnerName = runnerName;
             return Task.FromResult(_confirmed);
+        }
+    }
+
+    private sealed class FakeAppUpdateService : IAppUpdateService
+    {
+        private readonly AppUpdateCheckResult _checkResult;
+
+        public FakeAppUpdateService(AppUpdateCheckResult checkResult)
+        {
+            _checkResult = checkResult;
+        }
+
+        public int ApplyCount { get; private set; }
+
+        public Task<AppUpdateCheckResult> CheckForUpdatesAsync(CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(_checkResult);
+        }
+
+        public Task ApplyUpdateAndRestartAsync(
+            IProgress<int>? progress = null,
+            CancellationToken cancellationToken = default)
+        {
+            ApplyCount++;
+            return Task.CompletedTask;
         }
     }
 

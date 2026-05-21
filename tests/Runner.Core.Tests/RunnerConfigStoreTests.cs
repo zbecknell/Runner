@@ -15,6 +15,14 @@ public sealed class RunnerConfigStoreTests
         await store.SaveAsync(new RunnerConfig
         {
             AlwaysOnTop = true,
+            WindowPlacement = new WindowPlacement
+            {
+                X = 120,
+                Y = 80,
+                Width = 1440,
+                Height = 900,
+                IsMaximized = true
+            },
             Runners =
             [
                 new RunnerDefinition
@@ -36,6 +44,12 @@ public sealed class RunnerConfigStoreTests
         var loaded = await store.LoadAsync();
 
         Assert.True(loaded.AlwaysOnTop);
+        Assert.NotNull(loaded.WindowPlacement);
+        Assert.Equal(120, loaded.WindowPlacement.X);
+        Assert.Equal(80, loaded.WindowPlacement.Y);
+        Assert.Equal(1440, loaded.WindowPlacement.Width);
+        Assert.Equal(900, loaded.WindowPlacement.Height);
+        Assert.True(loaded.WindowPlacement.IsMaximized);
         var runner = Assert.Single(loaded.Runners);
         Assert.Equal("runner-1", runner.Id);
         Assert.Equal("API", runner.DisplayName);
@@ -53,6 +67,7 @@ public sealed class RunnerConfigStoreTests
         var config = await store.LoadAsync();
 
         Assert.False(config.AlwaysOnTop);
+        Assert.Null(config.WindowPlacement);
         Assert.Empty(config.Runners);
     }
 }

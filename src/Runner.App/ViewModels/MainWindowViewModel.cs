@@ -15,19 +15,28 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
     private readonly IRunnerFactory _runnerFactory;
     private readonly IWorkingDirectoryPicker _workingDirectoryPicker;
     private readonly IRunnerRemovalConfirmation _runnerRemovalConfirmation;
+    private readonly IAppUpdateService _appUpdateService;
     private bool _alwaysOnTop;
+    private string? _availableUpdateVersion;
     private bool _isEditMode;
+    private bool _isCheckingForUpdates;
     private bool _isLoading;
+    private bool _isUpdateAvailable;
+    private bool _isUpdateDownloaded;
+    private bool _isUpdating;
     private bool _suppressAlwaysOnTopSave;
     private RunnerViewModel? _selectedRunner;
     private string _statusMessage = "Loading configuration...";
+    private int _updateProgress;
+    private WindowPlacement? _windowPlacement;
 
     public MainWindowViewModel()
         : this(
             new RunnerConfigStore(RunnerConfigStore.GetDefaultConfigPath()),
             new RunnerFactory(),
             NullWorkingDirectoryPicker.Instance,
-            NullRunnerRemovalConfirmation.Instance)
+            NullRunnerRemovalConfirmation.Instance,
+            NullAppUpdateService.Instance)
     {
         _ = LoadAsync();
     }
@@ -40,7 +49,8 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
             configStore,
             runnerFactory,
             workingDirectoryPicker,
-            NullRunnerRemovalConfirmation.Instance)
+            NullRunnerRemovalConfirmation.Instance,
+            NullAppUpdateService.Instance)
     {
     }
 
@@ -49,17 +59,39 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         IRunnerFactory runnerFactory,
         IWorkingDirectoryPicker workingDirectoryPicker,
         IRunnerRemovalConfirmation runnerRemovalConfirmation)
+        : this(
+            configStore,
+            runnerFactory,
+            workingDirectoryPicker,
+            runnerRemovalConfirmation,
+            NullAppUpdateService.Instance)
+    {
+    }
+
+    public MainWindowViewModel(
+        RunnerConfigStore configStore,
+        IRunnerFactory runnerFactory,
+        IWorkingDirectoryPicker workingDirectoryPicker,
+        IRunnerRemovalConfirmation runnerRemovalConfirmation,
+        IAppUpdateService appUpdateService)
     {
         _configStore = configStore;
         _runnerFactory = runnerFactory;
         _workingDirectoryPicker = workingDirectoryPicker;
         _runnerRemovalConfirmation = runnerRemovalConfirmation;
+        _appUpdateService = appUpdateService;
         Runners.CollectionChanged += OnRunnersChanged;
     }
 
     public ObservableCollection<RunnerViewModel> Runners { get; } = [];
 
     public string ConfigPath => _configStore.FilePath;
+
+    public WindowPlacement? WindowPlacement
+    {
+        get => _windowPlacement;
+        private set => SetProperty(ref _windowPlacement, value);
+    }
 
     public bool AlwaysOnTop
     {
@@ -113,6 +145,82 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         private set => SetProperty(ref _statusMessage, value);
     }
 
+    public string? AvailableUpdateVersion
+    {
+        get => _availableUpdateVersion;
+        private set
+        {
+            if (SetProperty(ref _availableUpdateVersion, value))
+            {
+                OnPropertyChanged(nameof(UpdateActionText));
+                OnPropertyChanged(nameof(UpdateActionToolTip));
+            }
+        }
+    }
+
+    public int UpdateProgress
+    {
+        get => _updateProgress;
+        private set
+        {
+            if (SetProperty(ref _updateProgress, value))
+            {
+                OnPropertyChanged(nameof(UpdateActionText));
+            }
+        }
+    }
+
+    public bool IsCheckingForUpdates
+    {
+        get => _isCheckingForUpdates;
+        private set => SetProperty(ref _isCheckingForUpdates, value);
+    }
+
+    public bool IsUpdateAvailable
+    {
+        get => _isUpdateAvailable;
+        private set
+        {
+            if (SetProperty(ref _isUpdateAvailable, value))
+            {
+                OnPropertyChanged(nameof(IsUpdateActionVisible));
+                OnPropertyChanged(nameof(CanApplyUpdate));
+                OnPropertyChanged(nameof(UpdateActionText));
+                OnPropertyChanged(nameof(UpdateActionToolTip));
+                ApplyUpdateCommand.NotifyCanExecuteChanged();
+            }
+        }
+    }
+
+    public bool IsUpdateDownloaded
+    {
+        get => _isUpdateDownloaded;
+        private set
+        {
+            if (SetProperty(ref _isUpdateDownloaded, value))
+            {
+                OnPropertyChanged(nameof(UpdateActionText));
+                OnPropertyChanged(nameof(UpdateActionToolTip));
+            }
+        }
+    }
+
+    public bool IsUpdating
+    {
+        get => _isUpdating;
+        private set
+        {
+            if (SetProperty(ref _isUpdating, value))
+            {
+                OnPropertyChanged(nameof(IsUpdateActionVisible));
+                OnPropertyChanged(nameof(CanApplyUpdate));
+                OnPropertyChanged(nameof(UpdateActionText));
+                OnPropertyChanged(nameof(UpdateActionToolTip));
+                ApplyUpdateCommand.NotifyCanExecuteChanged();
+            }
+        }
+    }
+
     public bool IsDashboardMode => !IsEditMode;
 
     public bool HasSelectedRunner => SelectedRunner is not null;
@@ -129,11 +237,41 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
 
     public bool CanRunSelected => SelectedRunner?.CanRunPrimary == true;
 
+    public bool CanApplyUpdate => IsUpdateAvailable && !IsUpdating;
+
+    public bool IsUpdateActionVisible => IsUpdateAvailable || IsUpdating;
+
     public string EditModeButtonText => IsEditMode ? "Done" : "Edit";
 
     public string EditModeIconValue => IsEditMode ? "fa-solid fa-check" : "fa-solid fa-pen";
 
     public string AlwaysOnTopToolTip => AlwaysOnTop ? "Disable always on top" : "Keep window on top";
+
+    public string UpdateActionText
+    {
+        get
+        {
+            if (IsUpdating)
+            {
+                return UpdateProgress > 0
+                    ? $"Updating {UpdateProgress}%"
+                    : "Updating";
+            }
+
+            if (IsUpdateDownloaded)
+            {
+                return "Restart to update";
+            }
+
+            return string.IsNullOrWhiteSpace(AvailableUpdateVersion)
+                ? "Update"
+                : $"Update {AvailableUpdateVersion}";
+        }
+    }
+
+    public string UpdateActionToolTip => IsUpdateDownloaded
+        ? "Restart Runner to apply the downloaded update"
+        : "Download, apply, and restart Runner";
 
     public IBrush AlwaysOnTopIconForeground => ToBrush(AlwaysOnTop ? "#2563EB" : "#667085");
 
@@ -148,6 +286,7 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
             var config = await _configStore.LoadAsync(cancellationToken);
 
             AlwaysOnTop = config.AlwaysOnTop;
+            SetLoadedWindowPlacement(config.WindowPlacement);
             Runners.Clear();
 
             foreach (var definition in config.Runners)
@@ -159,6 +298,8 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
             StatusMessage = Runners.Count == 0
                 ? "No runners configured. Add a runner to get started."
                 : $"Loaded {Runners.Count} runner(s).";
+
+            await CheckForUpdatesAsync(showNoUpdateStatus: false, cancellationToken);
         }
         catch (Exception ex)
         {
@@ -167,6 +308,37 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         finally
         {
             _isLoading = false;
+        }
+    }
+
+    public async Task CheckForUpdatesAsync(
+        bool showNoUpdateStatus = true,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            IsCheckingForUpdates = true;
+            var result = await _appUpdateService.CheckForUpdatesAsync(cancellationToken);
+
+            AvailableUpdateVersion = result.AvailableVersion;
+            IsUpdateDownloaded = result.IsDownloaded;
+            IsUpdateAvailable = result.IsAvailable;
+
+            if (result.IsAvailable || (showNoUpdateStatus && result.IsSupported))
+            {
+                StatusMessage = result.Message;
+            }
+        }
+        catch (Exception ex)
+        {
+            IsUpdateAvailable = false;
+            IsUpdateDownloaded = false;
+            AvailableUpdateVersion = null;
+            StatusMessage = $"Update check failed: {ex.Message}";
+        }
+        finally
+        {
+            IsCheckingForUpdates = false;
         }
     }
 
@@ -337,6 +509,52 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         await SaveConfigAsync("Saved configuration.");
     }
 
+    [RelayCommand(CanExecute = nameof(CanApplyUpdate))]
+    private async Task ApplyUpdateAsync()
+    {
+        try
+        {
+            IsUpdating = true;
+            UpdateProgress = 0;
+            StatusMessage = IsUpdateDownloaded
+                ? "Restarting to apply update..."
+                : "Downloading update...";
+
+            var progress = new Progress<int>(value =>
+            {
+                UpdateProgress = value;
+                StatusMessage = $"Downloading update... {value}%";
+            });
+
+            await _appUpdateService.ApplyUpdateAndRestartAsync(progress);
+            StatusMessage = "Restarting to apply update...";
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Update failed: {ex.Message}";
+        }
+        finally
+        {
+            IsUpdating = false;
+        }
+    }
+
+    public Task SaveWindowPlacementAsync(
+        WindowPlacement placement,
+        CancellationToken cancellationToken = default)
+    {
+        WindowPlacement = placement;
+        return SaveConfigAsync("Saved window placement.", cancellationToken);
+    }
+
+    private void SetLoadedWindowPlacement(WindowPlacement? placement)
+    {
+        if (!SetProperty(ref _windowPlacement, placement, nameof(WindowPlacement)))
+        {
+            OnPropertyChanged(nameof(WindowPlacement));
+        }
+    }
+
     [RelayCommand]
     private void ToggleEditMode()
     {
@@ -489,17 +707,20 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         return runner;
     }
 
-    private async Task SaveConfigAsync(string successMessage)
+    private async Task SaveConfigAsync(
+        string successMessage,
+        CancellationToken cancellationToken = default)
     {
         try
         {
             var config = new RunnerConfig
             {
                 AlwaysOnTop = AlwaysOnTop,
+                WindowPlacement = WindowPlacement,
                 Runners = Runners.Select(runner => runner.Definition.Clone()).ToList()
             };
 
-            await _configStore.SaveAsync(config);
+            await _configStore.SaveAsync(config, cancellationToken);
             StatusMessage = successMessage;
         }
         catch (Exception ex)
