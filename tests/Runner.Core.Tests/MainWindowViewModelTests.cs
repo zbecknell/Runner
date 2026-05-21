@@ -8,7 +8,7 @@ namespace Runner.Core.Tests;
 public sealed class MainWindowViewModelTests
 {
     [Fact]
-    public void Constructor_DefaultsToDashboardMode()
+    public void Constructor_DefaultsToCompactDashboardSize()
     {
         using var directory = TempDirectory.Create();
         var viewModel = new MainWindowViewModel(
@@ -17,14 +17,13 @@ public sealed class MainWindowViewModelTests
             new FakeWorkingDirectoryPicker(null),
             new FakeRunnerRemovalConfirmation(false));
 
-        Assert.False(viewModel.IsEditMode);
-        Assert.True(viewModel.IsDashboardMode);
-        Assert.Equal("Edit", viewModel.EditModeButtonText);
-        Assert.Equal("fa-solid fa-pen", viewModel.EditModeIconValue);
+        Assert.Equal(420, viewModel.WindowMinWidth);
+        Assert.Equal(112, viewModel.WindowMinHeight);
+        Assert.False(viewModel.IsSettingsDirty);
     }
 
     [Fact]
-    public void ToggleEditModeCommand_SwitchesBetweenDashboardAndEditMode()
+    public void OpenSettingsCommand_RequestsSettingsOpen()
     {
         using var directory = TempDirectory.Create();
         var viewModel = new MainWindowViewModel(
@@ -32,36 +31,37 @@ public sealed class MainWindowViewModelTests
             new RunnerFactory(),
             new FakeWorkingDirectoryPicker(null),
             new FakeRunnerRemovalConfirmation(false));
+        var openRequestCount = 0;
+        viewModel.SettingsOpenRequested += (_, _) => openRequestCount++;
 
-        viewModel.ToggleEditModeCommand.Execute(null);
+        viewModel.OpenSettingsCommand.Execute(null);
 
-        Assert.True(viewModel.IsEditMode);
-        Assert.False(viewModel.IsDashboardMode);
-        Assert.Equal("Done", viewModel.EditModeButtonText);
-        Assert.Equal("fa-solid fa-check", viewModel.EditModeIconValue);
-
-        viewModel.ToggleEditModeCommand.Execute(null);
-
-        Assert.False(viewModel.IsEditMode);
-        Assert.True(viewModel.IsDashboardMode);
+        Assert.Equal(1, openRequestCount);
     }
 
     [Fact]
-    public async Task AddRunnerCommand_FromEmptyDashboard_CreatesRunnerSelectsItAndEntersEditMode()
+    public async Task AddRunnerCommand_FromEmptyDashboard_CreatesRunnerSelectsItSavesAndRequestsSettingsOpen()
     {
         using var directory = TempDirectory.Create();
+        var configStore = new RunnerConfigStore(Path.Combine(directory.Path, "settings.json"));
         var viewModel = new MainWindowViewModel(
-            new RunnerConfigStore(Path.Combine(directory.Path, "settings.json")),
+            configStore,
             new RunnerFactory(),
             new FakeWorkingDirectoryPicker(null),
             new FakeRunnerRemovalConfirmation(false));
+        var openRequestCount = 0;
+        viewModel.SettingsOpenRequested += (_, _) => openRequestCount++;
         await viewModel.LoadAsync();
 
         await viewModel.AddRunnerCommand.ExecuteAsync(null);
 
         var runner = Assert.Single(viewModel.Runners);
         Assert.Same(runner, viewModel.SelectedRunner);
-        Assert.True(viewModel.IsEditMode);
+        Assert.False(viewModel.IsSettingsDirty);
+        Assert.Equal(1, openRequestCount);
+
+        var savedConfig = await configStore.LoadAsync();
+        Assert.Single(savedConfig.Runners);
     }
 
     [Fact]
@@ -100,7 +100,7 @@ public sealed class MainWindowViewModelTests
 
         var clone = viewModel.Runners[1];
         Assert.Same(clone, viewModel.SelectedRunner);
-        Assert.True(viewModel.IsEditMode);
+        Assert.False(viewModel.IsSettingsDirty);
         Assert.Equal("Cloned runner.", viewModel.StatusMessage);
         Assert.Equal("API (Clone)", clone.DisplayName);
         Assert.Equal(RunnerType.DotNetProject, clone.Type);
@@ -157,6 +157,79 @@ public sealed class MainWindowViewModelTests
 
         var savedConfig = await configStore.LoadAsync();
         Assert.True(savedConfig.AlwaysOnTop);
+    }
+
+    [Fact]
+    public async Task RunnerFieldEdit_MarksSettingsDirtyAndSaveClearsDirty()
+    {
+        using var directory = TempDirectory.Create();
+        var configStore = CreateConfigStore(directory.Path);
+        var viewModel = new MainWindowViewModel(
+            configStore,
+            new RunnerFactory(),
+            new FakeWorkingDirectoryPicker(null),
+            new FakeRunnerRemovalConfirmation(false));
+        await viewModel.LoadAsync();
+
+        viewModel.SelectedRunner!.DisplayName = "Updated app";
+
+        Assert.True(viewModel.IsSettingsDirty);
+
+        await viewModel.SaveConfigCommand.ExecuteAsync(null);
+
+        Assert.False(viewModel.IsSettingsDirty);
+        var savedConfig = await configStore.LoadAsync();
+        Assert.Equal("Updated app", savedConfig.Runners[0].DisplayName);
+    }
+
+    [Fact]
+    public async Task DiscardSettingsChanges_RestoresLastSavedEditableFields()
+    {
+        using var directory = TempDirectory.Create();
+        var configStore = CreateConfigStore(directory.Path);
+        var viewModel = new MainWindowViewModel(
+            configStore,
+            new RunnerFactory(),
+            new FakeWorkingDirectoryPicker(null),
+            new FakeRunnerRemovalConfirmation(false));
+        await viewModel.LoadAsync();
+        var runner = viewModel.SelectedRunner!;
+
+        runner.DisplayName = "Dirty name";
+        runner.WorkingDirectory = Path.Combine(directory.Path, "dirty");
+        runner.Command = "Dirty.csproj";
+        runner.Arguments = "--dirty";
+        runner.EnvironmentVariablesText = "DIRTY=true";
+
+        viewModel.DiscardSettingsChanges();
+
+        Assert.False(viewModel.IsSettingsDirty);
+        Assert.Equal("Test app", runner.DisplayName);
+        Assert.Equal(directory.Path, runner.WorkingDirectory);
+        Assert.Equal("", runner.Command);
+        Assert.Equal("", runner.Arguments);
+        Assert.Equal("", runner.EnvironmentVariablesText);
+    }
+
+    [Fact]
+    public async Task PreferenceSave_WhenSettingsAreDirty_PreservesLastSavedRunnerConfig()
+    {
+        using var directory = TempDirectory.Create();
+        var configStore = CreateConfigStore(directory.Path);
+        var viewModel = new MainWindowViewModel(
+            configStore,
+            new RunnerFactory(),
+            new FakeWorkingDirectoryPicker(null),
+            new FakeRunnerRemovalConfirmation(false));
+        await viewModel.LoadAsync();
+
+        viewModel.SelectedRunner!.DisplayName = "Unsaved name";
+        await viewModel.ToggleAlwaysOnTopCommand.ExecuteAsync(null);
+
+        Assert.True(viewModel.IsSettingsDirty);
+        var savedConfig = await configStore.LoadAsync();
+        Assert.True(savedConfig.AlwaysOnTop);
+        Assert.Equal("Test app", savedConfig.Runners[0].DisplayName);
     }
 
     [Fact]

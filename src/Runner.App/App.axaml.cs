@@ -24,6 +24,7 @@ public partial class App : Application
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
+            var startupOptions = AppStartupOptions.Parse(desktop.Args);
             var configStore = new RunnerConfigStore(RunnerConfigStore.GetDefaultConfigPath());
             var mainWindow = new MainWindow();
             var viewModel = new MainWindowViewModel(
@@ -36,7 +37,7 @@ public partial class App : Application
             viewModel.PropertyChanged += OnMainWindowViewModelPropertyChanged;
             mainWindow.DataContext = viewModel;
             desktop.MainWindow = mainWindow;
-            _ = viewModel.LoadAsync();
+            _ = LoadAndApplyStartupOptionsAsync();
 
             void OnMainWindowViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
             {
@@ -44,6 +45,16 @@ public partial class App : Application
                 {
                     mainWindow.ApplyWindowPlacement(viewModel.WindowPlacement);
                     viewModel.PropertyChanged -= OnMainWindowViewModelPropertyChanged;
+                }
+            }
+
+            async Task LoadAndApplyStartupOptionsAsync()
+            {
+                await viewModel.LoadAsync();
+
+                if (startupOptions.OpenSettings)
+                {
+                    mainWindow.OpenSettingsWindow();
                 }
             }
         }

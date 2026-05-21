@@ -13,12 +13,37 @@ public partial class MainWindow : Window
     private bool _placementApplied;
     private WindowPlacement? _lastNormalPlacement;
     private WindowPlacement? _pendingPlacement;
+    private SettingsWindow? _settingsWindow;
+    private MainWindowViewModel? _viewModel;
 
     public MainWindow()
     {
         InitializeComponent();
         PositionChanged += (_, _) => CaptureNormalPlacement();
         Resized += (_, _) => CaptureNormalPlacement();
+        DataContextChanged += (_, _) => SetViewModel(DataContext as MainWindowViewModel);
+    }
+
+    public void OpenSettingsWindow()
+    {
+        if (_settingsWindow is { IsVisible: true })
+        {
+            _settingsWindow.Activate();
+            return;
+        }
+
+        if (_viewModel is null)
+        {
+            return;
+        }
+
+        _settingsWindow = new SettingsWindow
+        {
+            DataContext = _viewModel
+        };
+        _settingsWindow.Closed += (_, _) => _settingsWindow = null;
+        _settingsWindow.Show(this);
+        _settingsWindow.Activate();
     }
 
     public void ApplyWindowPlacement(WindowPlacement? placement)
@@ -105,6 +130,7 @@ public partial class MainWindow : Window
         {
             if (DataContext is MainWindowViewModel viewModel)
             {
+                SetViewModel(null);
                 await viewModel.SaveWindowPlacementAsync(GetCurrentWindowPlacement());
                 await viewModel.DisposeAsync();
             }
@@ -175,5 +201,25 @@ public partial class MainWindow : Window
         return double.IsFinite(value)
             ? Math.Max(minimum, value)
             : minimum;
+    }
+
+    private void SetViewModel(MainWindowViewModel? viewModel)
+    {
+        if (_viewModel is not null)
+        {
+            _viewModel.SettingsOpenRequested -= OnSettingsOpenRequested;
+        }
+
+        _viewModel = viewModel;
+
+        if (_viewModel is not null)
+        {
+            _viewModel.SettingsOpenRequested += OnSettingsOpenRequested;
+        }
+    }
+
+    private void OnSettingsOpenRequested(object? sender, EventArgs e)
+    {
+        OpenSettingsWindow();
     }
 }

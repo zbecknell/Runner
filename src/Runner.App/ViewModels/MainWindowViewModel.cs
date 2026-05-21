@@ -18,13 +18,15 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
     private readonly IAppUpdateService _appUpdateService;
     private bool _alwaysOnTop;
     private string? _availableUpdateVersion;
-    private bool _isEditMode;
     private bool _isCheckingForUpdates;
     private bool _isLoading;
     private bool _isUpdateAvailable;
     private bool _isUpdateDownloaded;
     private bool _isUpdating;
+    private bool _isSettingsDirty;
+    private bool _suppressSettingsDirtyTracking;
     private bool _suppressAlwaysOnTopSave;
+    private List<RunnerDefinition> _lastSavedDefinitions = [];
     private RunnerViewModel? _selectedRunner;
     private string _statusMessage = "Loading configuration...";
     private int _updateProgress;
@@ -85,6 +87,8 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
 
     public ObservableCollection<RunnerViewModel> Runners { get; } = [];
 
+    public event EventHandler? SettingsOpenRequested;
+
     public string ConfigPath => _configStore.FilePath;
 
     public WindowPlacement? WindowPlacement
@@ -106,24 +110,16 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
 
                 if (!_isLoading && !_suppressAlwaysOnTopSave)
                 {
-                    _ = SaveConfigAsync("Saved always-on-top preference.");
+                    _ = SaveConfigAsync("Saved always-on-top preference.", saveRunnerChanges: false);
                 }
             }
         }
     }
 
-    public bool IsEditMode
+    public bool IsSettingsDirty
     {
-        get => _isEditMode;
-        set
-        {
-            if (SetProperty(ref _isEditMode, value))
-            {
-                OnPropertyChanged(nameof(IsDashboardMode));
-                OnPropertyChanged(nameof(EditModeButtonText));
-                OnPropertyChanged(nameof(EditModeIconValue));
-            }
-        }
+        get => _isSettingsDirty;
+        private set => SetProperty(ref _isSettingsDirty, value);
     }
 
     public RunnerViewModel? SelectedRunner
@@ -221,8 +217,6 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         }
     }
 
-    public bool IsDashboardMode => !IsEditMode;
-
     public bool HasSelectedRunner => SelectedRunner is not null;
 
     public bool HasNoRunners => Runners.Count == 0;
@@ -241,9 +235,9 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
 
     public bool IsUpdateActionVisible => IsUpdateAvailable || IsUpdating;
 
-    public string EditModeButtonText => IsEditMode ? "Done" : "Edit";
+    public double WindowMinWidth => 420;
 
-    public string EditModeIconValue => IsEditMode ? "fa-solid fa-check" : "fa-solid fa-pen";
+    public double WindowMinHeight => 112;
 
     public string AlwaysOnTopToolTip => AlwaysOnTop ? "Disable always on top" : "Keep window on top";
 
@@ -294,6 +288,7 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
                 AddRunnerViewModel(definition);
             }
 
+            CaptureSavedDefinitionsSnapshot();
             SelectedRunner = Runners.FirstOrDefault();
             StatusMessage = Runners.Count == 0
                 ? "No runners configured. Add a runner to get started."
@@ -377,8 +372,8 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
 
         var runner = AddRunnerViewModel(definition);
         SelectedRunner = runner;
-        IsEditMode = true;
-        await SaveConfigAsync("Added runner.");
+        await SaveConfigAsync("Added runner.", saveRunnerChanges: true);
+        RequestOpenSettings();
     }
 
     [RelayCommand(CanExecute = nameof(HasSelectedRunner))]
@@ -407,8 +402,7 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         var runner = AddRunnerViewModel(definition, insertIndex);
 
         SelectedRunner = runner;
-        IsEditMode = true;
-        await SaveConfigAsync("Cloned runner.");
+        await SaveConfigAsync("Cloned runner.", saveRunnerChanges: true);
     }
 
     [RelayCommand(CanExecute = nameof(HasSelectedRunner))]
@@ -448,7 +442,7 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         Runners.Remove(runner);
         await runner.DisposeAsync();
         SelectedRunner = Runners.Count == 0 ? null : Runners[Math.Min(nextSelectionIndex, Runners.Count - 1)];
-        await SaveConfigAsync("Removed runner.");
+        await SaveConfigAsync("Removed runner.", saveRunnerChanges: true);
     }
 
     [RelayCommand(CanExecute = nameof(CanStartSelected))]
@@ -495,7 +489,7 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
             }
 
             SelectedRunner.WorkingDirectory = selectedPath;
-            await SaveConfigAsync("Updated working directory.");
+            StatusMessage = "Updated working directory.";
         }
         catch (Exception ex)
         {
@@ -506,7 +500,7 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
     [RelayCommand]
     private async Task SaveConfigAsync()
     {
-        await SaveConfigAsync("Saved configuration.");
+        await SaveConfigAsync("Saved configuration.", saveRunnerChanges: true);
     }
 
     [RelayCommand(CanExecute = nameof(CanApplyUpdate))]
@@ -544,7 +538,7 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         CancellationToken cancellationToken = default)
     {
         WindowPlacement = placement;
-        return SaveConfigAsync("Saved window placement.", cancellationToken);
+        return SaveConfigAsync("Saved window placement.", saveRunnerChanges: false, cancellationToken);
     }
 
     private void SetLoadedWindowPlacement(WindowPlacement? placement)
@@ -556,9 +550,9 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
     }
 
     [RelayCommand]
-    private void ToggleEditMode()
+    private void OpenSettings()
     {
-        IsEditMode = !IsEditMode;
+        RequestOpenSettings();
     }
 
     [RelayCommand]
@@ -577,7 +571,7 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
 
         if (!_isLoading)
         {
-            await SaveConfigAsync("Saved always-on-top preference.");
+            await SaveConfigAsync("Saved always-on-top preference.", saveRunnerChanges: false);
         }
     }
 
@@ -707,20 +701,64 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         return runner;
     }
 
+    public void DiscardSettingsChanges()
+    {
+        _suppressSettingsDirtyTracking = true;
+
+        try
+        {
+            foreach (var runner in Runners)
+            {
+                var savedDefinition = _lastSavedDefinitions.FirstOrDefault(
+                    definition => string.Equals(definition.Id, runner.Id, StringComparison.Ordinal));
+
+                if (savedDefinition is null)
+                {
+                    continue;
+                }
+
+                runner.DisplayName = savedDefinition.DisplayName;
+                runner.WorkingDirectory = savedDefinition.WorkingDirectory;
+                runner.Command = savedDefinition.Command;
+                runner.Arguments = savedDefinition.Arguments;
+                runner.EnvironmentVariablesText = FormatEnvironmentVariables(savedDefinition.EnvironmentVariables);
+            }
+        }
+        finally
+        {
+            _suppressSettingsDirtyTracking = false;
+        }
+
+        IsSettingsDirty = false;
+        StatusMessage = "Discarded unsaved settings changes.";
+    }
+
     private async Task SaveConfigAsync(
         string successMessage,
+        bool saveRunnerChanges,
         CancellationToken cancellationToken = default)
     {
         try
         {
+            var runnerDefinitions = saveRunnerChanges || !IsSettingsDirty
+                ? Runners.Select(runner => runner.Definition.Clone()).ToList()
+                : _lastSavedDefinitions.Select(definition => definition.Clone()).ToList();
+
             var config = new RunnerConfig
             {
                 AlwaysOnTop = AlwaysOnTop,
                 WindowPlacement = WindowPlacement,
-                Runners = Runners.Select(runner => runner.Definition.Clone()).ToList()
+                Runners = runnerDefinitions
             };
 
             await _configStore.SaveAsync(config, cancellationToken);
+
+            if (saveRunnerChanges)
+            {
+                CaptureSavedDefinitionsSnapshot();
+                IsSettingsDirty = false;
+            }
+
             StatusMessage = successMessage;
         }
         catch (Exception ex)
@@ -746,6 +784,16 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
             or nameof(RunnerViewModel.CanRunPrimary))
         {
             RefreshCommandStates();
+        }
+
+        if (!_suppressSettingsDirtyTracking
+            && e.PropertyName is nameof(RunnerViewModel.DisplayName)
+                or nameof(RunnerViewModel.WorkingDirectory)
+                or nameof(RunnerViewModel.Command)
+                or nameof(RunnerViewModel.Arguments)
+                or nameof(RunnerViewModel.EnvironmentVariablesText))
+        {
+            IsSettingsDirty = true;
         }
     }
 
@@ -788,6 +836,23 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
     private static bool CanRunRunnerPrimary(RunnerViewModel? runner)
     {
         return runner?.CanRunPrimary == true;
+    }
+
+    private void RequestOpenSettings()
+    {
+        SettingsOpenRequested?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void CaptureSavedDefinitionsSnapshot()
+    {
+        _lastSavedDefinitions = Runners.Select(runner => runner.Definition.Clone()).ToList();
+    }
+
+    private static string FormatEnvironmentVariables(IReadOnlyDictionary<string, string> environmentVariables)
+    {
+        return string.Join(
+            Environment.NewLine,
+            environmentVariables.Select(pair => $"{pair.Key}={pair.Value}"));
     }
 
     private static IBrush ToBrush(string color)
