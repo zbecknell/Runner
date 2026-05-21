@@ -8,11 +8,13 @@ namespace Runner.App.ViewModels;
 
 public sealed partial class RunnerViewModel : ViewModelBase, IAsyncDisposable
 {
-    private readonly IRunner _runner;
+    private readonly IRunnerFactory _runnerFactory;
+    private IRunner _runner;
     private string _displayName;
     private string _workingDirectory;
     private string _command;
     private string _arguments;
+    private bool _cleanBeforeRestore;
     private string _environmentVariablesText;
     private RunnerStatus _status;
     private int? _processId;
@@ -22,11 +24,13 @@ public sealed partial class RunnerViewModel : ViewModelBase, IAsyncDisposable
     {
         Definition = definition;
         Definition.EnsureId();
+        _runnerFactory = runnerFactory;
 
         _displayName = definition.DisplayName;
         _workingDirectory = definition.WorkingDirectory;
         _command = definition.Command;
         _arguments = definition.Arguments;
+        _cleanBeforeRestore = definition.CleanBeforeRestore;
         _environmentVariablesText = FormatEnvironmentVariables(definition.EnvironmentVariables);
         _runner = runnerFactory.Create(definition);
         _status = _runner.Status;
@@ -38,6 +42,12 @@ public sealed partial class RunnerViewModel : ViewModelBase, IAsyncDisposable
     public RunnerDefinition Definition { get; }
 
     public string Id => Definition.Id;
+
+    public IReadOnlyList<RunnerTypeOption> AvailableTypes { get; } =
+    [
+        new(RunnerType.DotNetProject, "Run .NET project"),
+        new(RunnerType.DotNetProjectBuild, "Build .NET project")
+    ];
 
     public string DisplayName
     {
@@ -57,14 +67,32 @@ public sealed partial class RunnerViewModel : ViewModelBase, IAsyncDisposable
         get => Definition.Type;
         set
         {
-            if (Definition.Type == value)
+            if (Definition.Type == value || !CanEditType)
             {
                 return;
             }
 
             Definition.Type = value;
+            RecreateRunner();
             OnPropertyChanged();
+            OnPropertyChanged(nameof(SelectedTypeOption));
+            OnPropertyChanged(nameof(IsBuildOnly));
             OnPropertyChanged(nameof(Header));
+            OnPropertyChanged(nameof(PrimaryRunText));
+            OnPropertyChanged(nameof(PrimaryRunIconValue));
+            OnPropertyChanged(nameof(PrimaryRunToolTip));
+        }
+    }
+
+    public RunnerTypeOption? SelectedTypeOption
+    {
+        get => AvailableTypes.FirstOrDefault(option => option.Type == Type);
+        set
+        {
+            if (value is not null)
+            {
+                Type = value.Type;
+            }
         }
     }
 
@@ -100,6 +128,18 @@ public sealed partial class RunnerViewModel : ViewModelBase, IAsyncDisposable
             if (SetProperty(ref _arguments, value))
             {
                 Definition.Arguments = value;
+            }
+        }
+    }
+
+    public bool CleanBeforeRestore
+    {
+        get => _cleanBeforeRestore;
+        set
+        {
+            if (SetProperty(ref _cleanBeforeRestore, value))
+            {
+                Definition.CleanBeforeRestore = value;
             }
         }
     }
@@ -141,6 +181,7 @@ public sealed partial class RunnerViewModel : ViewModelBase, IAsyncDisposable
                 OnPropertyChanged(nameof(CanStop));
                 OnPropertyChanged(nameof(CanRestart));
                 OnPropertyChanged(nameof(CanRunPrimary));
+                OnPropertyChanged(nameof(CanEditType));
             }
         }
     }
@@ -163,7 +204,7 @@ public sealed partial class RunnerViewModel : ViewModelBase, IAsyncDisposable
     {
         RunnerStatus.Running => "#166534",
         RunnerStatus.Failed => "#991B1B",
-        RunnerStatus.Restoring or RunnerStatus.Building or RunnerStatus.Starting => "#1D4ED8",
+        RunnerStatus.Cleaning or RunnerStatus.Restoring or RunnerStatus.Building or RunnerStatus.Starting => "#1D4ED8",
         RunnerStatus.Stopping => "#92400E",
         _ => "#334155"
     };
@@ -172,7 +213,7 @@ public sealed partial class RunnerViewModel : ViewModelBase, IAsyncDisposable
     {
         RunnerStatus.Running => "#ECFDF5",
         RunnerStatus.Failed => "#FEF2F2",
-        RunnerStatus.Restoring or RunnerStatus.Building or RunnerStatus.Starting => "#EFF6FF",
+        RunnerStatus.Cleaning or RunnerStatus.Restoring or RunnerStatus.Building or RunnerStatus.Starting => "#EFF6FF",
         RunnerStatus.Stopping => "#FFFBEB",
         _ => "#F8FAFC"
     };
@@ -181,7 +222,7 @@ public sealed partial class RunnerViewModel : ViewModelBase, IAsyncDisposable
     {
         RunnerStatus.Running => "#22C55E",
         RunnerStatus.Failed => "#EF4444",
-        RunnerStatus.Restoring or RunnerStatus.Building or RunnerStatus.Starting => "#60A5FA",
+        RunnerStatus.Cleaning or RunnerStatus.Restoring or RunnerStatus.Building or RunnerStatus.Starting => "#60A5FA",
         RunnerStatus.Stopping => "#F59E0B",
         _ => "#64748B"
     };
@@ -190,7 +231,7 @@ public sealed partial class RunnerViewModel : ViewModelBase, IAsyncDisposable
     {
         RunnerStatus.Running => "fa-solid fa-circle-play",
         RunnerStatus.Failed => "fa-solid fa-triangle-exclamation",
-        RunnerStatus.Restoring or RunnerStatus.Building or RunnerStatus.Starting => "fa-solid fa-spinner",
+        RunnerStatus.Cleaning or RunnerStatus.Restoring or RunnerStatus.Building or RunnerStatus.Starting => "fa-solid fa-spinner",
         RunnerStatus.Stopping => "fa-solid fa-circle-stop",
         _ => "fa-solid fa-circle"
     };
@@ -202,16 +243,19 @@ public sealed partial class RunnerViewModel : ViewModelBase, IAsyncDisposable
     public string PrimaryRunText => Status switch
     {
         RunnerStatus.Running => "Restart",
+        RunnerStatus.Cleaning => "Cleaning",
         RunnerStatus.Restoring => "Restoring",
         RunnerStatus.Building => "Building",
         RunnerStatus.Starting => "Starting",
+        _ when IsBuildOnly => "Build",
         _ => "Start"
     };
 
     public string PrimaryRunIconValue => Status switch
     {
         RunnerStatus.Running => "fa-solid fa-rotate-right",
-        RunnerStatus.Restoring or RunnerStatus.Building or RunnerStatus.Starting => "fa-solid fa-spinner",
+        RunnerStatus.Cleaning or RunnerStatus.Restoring or RunnerStatus.Building or RunnerStatus.Starting => "fa-solid fa-spinner",
+        _ when IsBuildOnly => "fa-solid fa-hammer",
         _ => "fa-solid fa-play"
     };
 
@@ -222,9 +266,11 @@ public sealed partial class RunnerViewModel : ViewModelBase, IAsyncDisposable
     public string PrimaryRunToolTip => Status switch
     {
         RunnerStatus.Running => "Restart",
+        RunnerStatus.Cleaning => "Cleaning",
         RunnerStatus.Restoring => "Restoring",
         RunnerStatus.Building => "Building",
         RunnerStatus.Starting => "Starting",
+        _ when IsBuildOnly => "Build",
         _ => "Start"
     };
 
@@ -242,7 +288,8 @@ public sealed partial class RunnerViewModel : ViewModelBase, IAsyncDisposable
 
     public bool CanStart => Status is RunnerStatus.Stopped or RunnerStatus.Failed;
 
-    public bool CanStop => Status is RunnerStatus.Restoring
+    public bool CanStop => Status is RunnerStatus.Cleaning
+        or RunnerStatus.Restoring
         or RunnerStatus.Building
         or RunnerStatus.Starting
         or RunnerStatus.Running;
@@ -251,7 +298,14 @@ public sealed partial class RunnerViewModel : ViewModelBase, IAsyncDisposable
 
     public bool CanRunPrimary => Status is RunnerStatus.Running or RunnerStatus.Failed or RunnerStatus.Stopped;
 
-    private bool IsSpinnerStatus => Status is RunnerStatus.Restoring or RunnerStatus.Building or RunnerStatus.Starting;
+    public bool CanEditType => !CanStop;
+
+    public bool IsBuildOnly => Type == RunnerType.DotNetProjectBuild;
+
+    private bool IsSpinnerStatus => Status is RunnerStatus.Cleaning
+        or RunnerStatus.Restoring
+        or RunnerStatus.Building
+        or RunnerStatus.Starting;
 
     public bool HasFailureDetails => _runner.LastFailure is not null;
 
@@ -412,6 +466,17 @@ public sealed partial class RunnerViewModel : ViewModelBase, IAsyncDisposable
         RefreshFailureState();
     }
 
+    private void RecreateRunner()
+    {
+        var oldRunner = _runner;
+        oldRunner.StatusChanged -= OnStatusChanged;
+        _runner = _runnerFactory.Create(Definition);
+        _runner.StatusChanged += OnStatusChanged;
+
+        _ = oldRunner.DisposeAsync().AsTask();
+        RefreshProcessState();
+    }
+
     private void RefreshFailureState()
     {
         if (!HasFailureDetails && IsFailureDetailsVisible)
@@ -425,3 +490,5 @@ public sealed partial class RunnerViewModel : ViewModelBase, IAsyncDisposable
         ShowFailureDetailsCommand.NotifyCanExecuteChanged();
     }
 }
+
+public sealed record RunnerTypeOption(RunnerType Type, string DisplayName);

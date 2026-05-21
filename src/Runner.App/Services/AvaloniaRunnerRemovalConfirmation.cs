@@ -20,7 +20,7 @@ public sealed class AvaloniaRunnerRemovalConfirmation : IRunnerRemovalConfirmati
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        var dialog = CreateDialog(runnerName);
+        var dialog = CreateDialog(runnerName, _owner.Topmost);
         using var registration = cancellationToken.Register(() =>
         {
             Dispatcher.UIThread.Post(() =>
@@ -35,7 +35,7 @@ public sealed class AvaloniaRunnerRemovalConfirmation : IRunnerRemovalConfirmati
         return await dialog.ShowDialog<bool>(_owner);
     }
 
-    private static Window CreateDialog(string runnerName)
+    private static Window CreateDialog(string runnerName, bool topmost)
     {
         var message = new TextBlock
         {
@@ -98,7 +98,8 @@ public sealed class AvaloniaRunnerRemovalConfirmation : IRunnerRemovalConfirmati
             SizeToContent = SizeToContent.WidthAndHeight,
             CanResize = false,
             ShowInTaskbar = false,
-            WindowStartupLocation = WindowStartupLocation.CenterOwner
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Topmost = topmost
         };
 
         cancelButton.Click += (_, _) => dialog.Close(false);

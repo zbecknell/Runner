@@ -18,7 +18,7 @@ public sealed class AvaloniaSettingsCloseConfirmation : ISettingsCloseConfirmati
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        var dialog = CreateDialog();
+        var dialog = CreateDialog(_owner.Topmost);
         using var registration = cancellationToken.Register(() =>
         {
             Dispatcher.UIThread.Post(() =>
@@ -33,7 +33,7 @@ public sealed class AvaloniaSettingsCloseConfirmation : ISettingsCloseConfirmati
         return await dialog.ShowDialog<SettingsCloseAction>(_owner);
     }
 
-    private static Window CreateDialog()
+    private static Window CreateDialog(bool topmost)
     {
         var message = new TextBlock
         {
@@ -102,7 +102,8 @@ public sealed class AvaloniaSettingsCloseConfirmation : ISettingsCloseConfirmati
             SizeToContent = SizeToContent.WidthAndHeight,
             CanResize = false,
             ShowInTaskbar = false,
-            WindowStartupLocation = WindowStartupLocation.CenterOwner
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Topmost = topmost
         };
 
         cancelButton.Click += (_, _) => dialog.Close(SettingsCloseAction.Cancel);

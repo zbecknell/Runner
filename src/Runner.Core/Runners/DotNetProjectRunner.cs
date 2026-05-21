@@ -62,7 +62,8 @@ public sealed class DotNetProjectRunner : IRunner
 
         lock (_sync)
         {
-            if (_status is RunnerStatus.Restoring
+            if (_status is RunnerStatus.Cleaning
+                or RunnerStatus.Restoring
                 or RunnerStatus.Building
                 or RunnerStatus.Starting
                 or RunnerStatus.Running)
@@ -83,6 +84,16 @@ public sealed class DotNetProjectRunner : IRunner
             throw;
         }
 
+        if (Definition.CleanBeforeRestore
+            && !await RunPhaseAsync(
+                RunnerStatus.Cleaning,
+                "Clean failed.",
+                CreateCleanStartInfo(Definition),
+                cancellationToken))
+        {
+            return;
+        }
+
         if (!await RunPhaseAsync(
             RunnerStatus.Restoring,
             "Restore failed.",
@@ -98,6 +109,13 @@ public sealed class DotNetProjectRunner : IRunner
             CreateBuildStartInfo(Definition),
             cancellationToken))
         {
+            return;
+        }
+
+        if (Definition.Type == RunnerType.DotNetProjectBuild)
+        {
+            ClearFailure();
+            SetStatus(RunnerStatus.Stopped);
             return;
         }
 
@@ -225,7 +243,8 @@ public sealed class DotNetProjectRunner : IRunner
 
     public async ValueTask DisposeAsync()
     {
-        if (Status is RunnerStatus.Restoring
+        if (Status is RunnerStatus.Cleaning
+            or RunnerStatus.Restoring
             or RunnerStatus.Building
             or RunnerStatus.Starting
             or RunnerStatus.Running
@@ -356,6 +375,14 @@ public sealed class DotNetProjectRunner : IRunner
         }
     }
 
+    private static ProcessStartInfo CreateCleanStartInfo(RunnerDefinition definition)
+    {
+        var startInfo = CreateDotNetStartInfo(definition);
+        startInfo.ArgumentList.Add("clean");
+        AddProjectTarget(startInfo, definition);
+        return startInfo;
+    }
+
     private static ProcessStartInfo CreateRestoreStartInfo(RunnerDefinition definition)
     {
         var startInfo = CreateDotNetStartInfo(definition);
@@ -370,6 +397,15 @@ public sealed class DotNetProjectRunner : IRunner
         startInfo.ArgumentList.Add("build");
         AddProjectTarget(startInfo, definition);
         startInfo.ArgumentList.Add("--no-restore");
+
+        if (definition.Type == RunnerType.DotNetProjectBuild)
+        {
+            foreach (var argument in CommandLineTokenizer.Split(definition.Arguments))
+            {
+                startInfo.ArgumentList.Add(argument);
+            }
+        }
+
         return startInfo;
     }
 

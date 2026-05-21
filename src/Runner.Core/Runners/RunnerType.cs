@@ -2,5 +2,6 @@ namespace Runner.Core.Runners;
 
 public enum RunnerType
 {
-    DotNetProject
+    DotNetProject,
+    DotNetProjectBuild
 }

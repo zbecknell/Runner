@@ -33,6 +33,7 @@ public sealed class RunnerConfigStoreTests
                     WorkingDirectory = "C:\\src\\api",
                     Command = "Api.csproj",
                     Arguments = "--urls http://localhost:5005",
+                    CleanBeforeRestore = true,
                     EnvironmentVariables =
                     {
                         ["ASPNETCORE_ENVIRONMENT"] = "Development"
@@ -55,7 +56,64 @@ public sealed class RunnerConfigStoreTests
         Assert.Equal("API", runner.DisplayName);
         Assert.Equal(RunnerType.DotNetProject, runner.Type);
         Assert.Equal("Api.csproj", runner.Command);
+        Assert.True(runner.CleanBeforeRestore);
         Assert.Equal("Development", runner.EnvironmentVariables["ASPNETCORE_ENVIRONMENT"]);
+    }
+
+    [Fact]
+    public async Task LoadAsync_WhenRunnerOmitsCleanBeforeRestore_DefaultsToFalse()
+    {
+        using var directory = TempDirectory.Create();
+        var path = Path.Combine(directory.Path, "settings.json");
+        var store = new RunnerConfigStore(path);
+
+        await File.WriteAllTextAsync(
+            path,
+            """
+            {
+              "runners": [
+                {
+                  "id": "runner-1",
+                  "displayName": "API",
+                  "type": "DotNetProject",
+                  "workingDirectory": "C:\\src\\api",
+                  "command": "",
+                  "arguments": ""
+                }
+              ]
+            }
+            """);
+
+        var config = await store.LoadAsync();
+
+        var runner = Assert.Single(config.Runners);
+        Assert.False(runner.CleanBeforeRestore);
+    }
+
+    [Fact]
+    public async Task SaveAsyncAndLoadAsync_RoundTripsBuildOnlyProjectType()
+    {
+        using var directory = TempDirectory.Create();
+        var path = Path.Combine(directory.Path, "settings.json");
+        var store = new RunnerConfigStore(path);
+
+        await store.SaveAsync(new RunnerConfig
+        {
+            Runners =
+            [
+                new RunnerDefinition
+                {
+                    DisplayName = "Build API",
+                    Type = RunnerType.DotNetProjectBuild,
+                    WorkingDirectory = "C:\\src\\api"
+                }
+            ]
+        });
+
+        var loaded = await store.LoadAsync();
+
+        var runner = Assert.Single(loaded.Runners);
+        Assert.Equal(RunnerType.DotNetProjectBuild, runner.Type);
     }
 
     [Fact]

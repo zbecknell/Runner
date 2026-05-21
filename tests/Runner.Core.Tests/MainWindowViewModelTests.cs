@@ -76,6 +76,7 @@ public sealed class MainWindowViewModelTests
             WorkingDirectory = directory.Path,
             Command = "Api.csproj",
             Arguments = "--urls http://localhost:5005",
+            CleanBeforeRestore = true,
             EnvironmentVariables =
             {
                 ["ASPNETCORE_ENVIRONMENT"] = "Development"
@@ -107,6 +108,7 @@ public sealed class MainWindowViewModelTests
         Assert.Equal(directory.Path, clone.WorkingDirectory);
         Assert.Equal("Api.csproj", clone.Command);
         Assert.Equal("--urls http://localhost:5005", clone.Arguments);
+        Assert.True(clone.CleanBeforeRestore);
         Assert.Equal("Development", clone.Definition.EnvironmentVariables["ASPNETCORE_ENVIRONMENT"]);
         Assert.False(string.IsNullOrWhiteSpace(clone.Id));
         Assert.NotEqual("source-runner", clone.Id);
@@ -124,6 +126,124 @@ public sealed class MainWindowViewModelTests
         Assert.Equal(
             "Development",
             savedConfig.Runners[1].EnvironmentVariables["ASPNETCORE_ENVIRONMENT"]);
+        Assert.True(savedConfig.Runners[1].CleanBeforeRestore);
+    }
+
+    [Fact]
+    public async Task MoveRunner_ReordersProjectsPreservesSelectionAndMarksSettingsDirty()
+    {
+        using var directory = TempDirectory.Create();
+        var configStore = CreateConfigStore(
+            directory.Path,
+            CreateRunnerDefinition("First", directory.Path),
+            CreateRunnerDefinition("Second", directory.Path),
+            CreateRunnerDefinition("Third", directory.Path));
+        var viewModel = new MainWindowViewModel(
+            configStore,
+            new RunnerFactory(),
+            new FakeWorkingDirectoryPicker(null),
+            new FakeRunnerRemovalConfirmation(false));
+        await viewModel.LoadAsync();
+        var selectedRunner = viewModel.Runners[0];
+
+        var moved = viewModel.MoveRunner(selectedRunner, 2);
+
+        Assert.True(moved);
+        Assert.True(viewModel.IsSettingsDirty);
+        Assert.Same(selectedRunner, viewModel.SelectedRunner);
+        Assert.Equal(["Second", "Third", "First"], viewModel.Runners.Select(runner => runner.DisplayName));
+        Assert.Equal("Reordered projects.", viewModel.StatusMessage);
+    }
+
+    [Fact]
+    public async Task MoveRunnerCommands_MovePassedRunnerAndRespectBoundaries()
+    {
+        using var directory = TempDirectory.Create();
+        var configStore = CreateConfigStore(
+            directory.Path,
+            CreateRunnerDefinition("First", directory.Path),
+            CreateRunnerDefinition("Second", directory.Path),
+            CreateRunnerDefinition("Third", directory.Path));
+        var viewModel = new MainWindowViewModel(
+            configStore,
+            new RunnerFactory(),
+            new FakeWorkingDirectoryPicker(null),
+            new FakeRunnerRemovalConfirmation(false));
+        await viewModel.LoadAsync();
+
+        var firstRunner = viewModel.Runners[0];
+        var secondRunner = viewModel.Runners[1];
+
+        Assert.False(viewModel.MoveRunnerUpCommand.CanExecute(firstRunner));
+        Assert.True(viewModel.MoveRunnerDownCommand.CanExecute(firstRunner));
+
+        viewModel.SelectedRunner = viewModel.Runners[1];
+
+        Assert.True(viewModel.MoveRunnerUpCommand.CanExecute(secondRunner));
+        Assert.True(viewModel.MoveRunnerDownCommand.CanExecute(secondRunner));
+
+        viewModel.MoveRunnerUpCommand.Execute(secondRunner);
+
+        Assert.Equal(["Second", "First", "Third"], viewModel.Runners.Select(runner => runner.DisplayName));
+        Assert.Same(viewModel.Runners[0], viewModel.SelectedRunner);
+        Assert.False(viewModel.MoveRunnerUpCommand.CanExecute(secondRunner));
+        Assert.True(viewModel.MoveRunnerDownCommand.CanExecute(secondRunner));
+
+        viewModel.MoveRunnerDownCommand.Execute(secondRunner);
+        viewModel.MoveRunnerDownCommand.Execute(secondRunner);
+
+        Assert.Equal(["First", "Third", "Second"], viewModel.Runners.Select(runner => runner.DisplayName));
+        Assert.Same(viewModel.Runners[2], viewModel.SelectedRunner);
+        Assert.True(viewModel.MoveRunnerUpCommand.CanExecute(secondRunner));
+        Assert.False(viewModel.MoveRunnerDownCommand.CanExecute(secondRunner));
+    }
+
+    [Fact]
+    public async Task SaveConfigCommand_PersistsReorderedProjects()
+    {
+        using var directory = TempDirectory.Create();
+        var configStore = CreateConfigStore(
+            directory.Path,
+            CreateRunnerDefinition("First", directory.Path),
+            CreateRunnerDefinition("Second", directory.Path),
+            CreateRunnerDefinition("Third", directory.Path));
+        var viewModel = new MainWindowViewModel(
+            configStore,
+            new RunnerFactory(),
+            new FakeWorkingDirectoryPicker(null),
+            new FakeRunnerRemovalConfirmation(false));
+        await viewModel.LoadAsync();
+
+        viewModel.MoveRunner(viewModel.Runners[2], 0);
+        await viewModel.SaveConfigCommand.ExecuteAsync(null);
+
+        Assert.False(viewModel.IsSettingsDirty);
+        var savedConfig = await configStore.LoadAsync();
+        Assert.Equal(["Third", "First", "Second"], savedConfig.Runners.Select(runner => runner.DisplayName));
+    }
+
+    [Fact]
+    public async Task DiscardSettingsChanges_RestoresLastSavedProjectOrder()
+    {
+        using var directory = TempDirectory.Create();
+        var configStore = CreateConfigStore(
+            directory.Path,
+            CreateRunnerDefinition("First", directory.Path),
+            CreateRunnerDefinition("Second", directory.Path),
+            CreateRunnerDefinition("Third", directory.Path));
+        var viewModel = new MainWindowViewModel(
+            configStore,
+            new RunnerFactory(),
+            new FakeWorkingDirectoryPicker(null),
+            new FakeRunnerRemovalConfirmation(false));
+        await viewModel.LoadAsync();
+
+        viewModel.MoveRunner(viewModel.Runners[2], 0);
+
+        viewModel.DiscardSettingsChanges();
+
+        Assert.False(viewModel.IsSettingsDirty);
+        Assert.Equal(["First", "Second", "Third"], viewModel.Runners.Select(runner => runner.DisplayName));
     }
 
     [Fact]
@@ -183,6 +303,93 @@ public sealed class MainWindowViewModelTests
     }
 
     [Fact]
+    public async Task CleanBeforeRestoreEdit_MarksSettingsDirtyAndSavePersists()
+    {
+        using var directory = TempDirectory.Create();
+        var configStore = CreateConfigStore(directory.Path);
+        var viewModel = new MainWindowViewModel(
+            configStore,
+            new RunnerFactory(),
+            new FakeWorkingDirectoryPicker(null),
+            new FakeRunnerRemovalConfirmation(false));
+        await viewModel.LoadAsync();
+
+        viewModel.SelectedRunner!.CleanBeforeRestore = true;
+
+        Assert.True(viewModel.IsSettingsDirty);
+
+        await viewModel.SaveConfigCommand.ExecuteAsync(null);
+
+        Assert.False(viewModel.IsSettingsDirty);
+        var savedConfig = await configStore.LoadAsync();
+        Assert.True(savedConfig.Runners[0].CleanBeforeRestore);
+    }
+
+    [Fact]
+    public async Task RunnerTypeEdit_MarksSettingsDirtyAndSavePersists()
+    {
+        using var directory = TempDirectory.Create();
+        var configStore = CreateConfigStore(directory.Path);
+        var viewModel = new MainWindowViewModel(
+            configStore,
+            new RunnerFactory(),
+            new FakeWorkingDirectoryPicker(null),
+            new FakeRunnerRemovalConfirmation(false));
+        await viewModel.LoadAsync();
+
+        viewModel.SelectedRunner!.Type = RunnerType.DotNetProjectBuild;
+
+        Assert.True(viewModel.IsSettingsDirty);
+
+        await viewModel.SaveConfigCommand.ExecuteAsync(null);
+
+        Assert.False(viewModel.IsSettingsDirty);
+        var savedConfig = await configStore.LoadAsync();
+        Assert.Equal(RunnerType.DotNetProjectBuild, savedConfig.Runners[0].Type);
+    }
+
+    [Fact]
+    public async Task RunRunnerCommand_ForBuildOnlyRunner_StartsBuildAndShowsBuiltStatus()
+    {
+        using var directory = TempDirectory.Create();
+        var definition = CreateRunnerDefinition("Build runner", directory.Path);
+        definition.Type = RunnerType.DotNetProjectBuild;
+        var configStore = CreateConfigStore(directory.Path, definition);
+        var factory = new RecordingRunnerFactory(RunnerStatus.Stopped);
+        var viewModel = new MainWindowViewModel(
+            configStore,
+            factory,
+            new FakeWorkingDirectoryPicker(null),
+            new FakeRunnerRemovalConfirmation(false));
+        await viewModel.LoadAsync();
+
+        await viewModel.RunRunnerCommand.ExecuteAsync(viewModel.Runners[0]);
+
+        Assert.Equal(1, factory.Created[0].StartCount);
+        Assert.Equal(0, factory.Created[0].RestartCount);
+        Assert.Equal("Built Build runner.", viewModel.StatusMessage);
+    }
+
+    [Fact]
+    public async Task AddRunnerCommand_DefaultsCleanBeforeRestoreOff()
+    {
+        using var directory = TempDirectory.Create();
+        var configStore = new RunnerConfigStore(Path.Combine(directory.Path, "settings.json"));
+        var viewModel = new MainWindowViewModel(
+            configStore,
+            new RunnerFactory(),
+            new FakeWorkingDirectoryPicker(null),
+            new FakeRunnerRemovalConfirmation(false));
+        await viewModel.LoadAsync();
+
+        await viewModel.AddRunnerCommand.ExecuteAsync(null);
+
+        Assert.False(viewModel.SelectedRunner!.CleanBeforeRestore);
+        var savedConfig = await configStore.LoadAsync();
+        Assert.False(savedConfig.Runners[0].CleanBeforeRestore);
+    }
+
+    [Fact]
     public async Task DiscardSettingsChanges_RestoresLastSavedEditableFields()
     {
         using var directory = TempDirectory.Create();
@@ -196,18 +403,22 @@ public sealed class MainWindowViewModelTests
         var runner = viewModel.SelectedRunner!;
 
         runner.DisplayName = "Dirty name";
+        runner.Type = RunnerType.DotNetProjectBuild;
         runner.WorkingDirectory = Path.Combine(directory.Path, "dirty");
         runner.Command = "Dirty.csproj";
         runner.Arguments = "--dirty";
+        runner.CleanBeforeRestore = true;
         runner.EnvironmentVariablesText = "DIRTY=true";
 
         viewModel.DiscardSettingsChanges();
 
         Assert.False(viewModel.IsSettingsDirty);
         Assert.Equal("Test app", runner.DisplayName);
+        Assert.Equal(RunnerType.DotNetProject, runner.Type);
         Assert.Equal(directory.Path, runner.WorkingDirectory);
         Assert.Equal("", runner.Command);
         Assert.Equal("", runner.Arguments);
+        Assert.False(runner.CleanBeforeRestore);
         Assert.Equal("", runner.EnvironmentVariablesText);
     }
 
@@ -861,7 +1072,9 @@ public sealed class MainWindowViewModelTests
         public Task StartAsync(CancellationToken cancellationToken = default)
         {
             StartCount++;
-            Status = RunnerStatus.Running;
+            Status = Definition.Type == RunnerType.DotNetProjectBuild
+                ? RunnerStatus.Stopped
+                : RunnerStatus.Running;
             StatusChanged?.Invoke(this, Status);
             return Task.CompletedTask;
         }

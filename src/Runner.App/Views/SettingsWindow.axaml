@@ -14,7 +14,8 @@
         Width="900"
         Height="560"
         MinWidth="900"
-        MinHeight="560">
+        MinHeight="560"
+        Topmost="{Binding AlwaysOnTop}">
 
     <Grid ColumnDefinitions="350,*">
         <Border Grid.Column="0"
@@ -75,15 +76,49 @@
                              SelectedItem="{Binding SelectedRunner}"
                              IsVisible="{Binding HasRunners}">
                         <ListBox.ItemTemplate>
-                            <DataTemplate DataType="vm:RunnerViewModel">
+                            <DataTemplate DataType="vm:RunnerViewModel"
+                                          x:CompileBindings="False">
                                 <Border Padding="8"
                                         MinHeight="74">
-                                    <Grid RowDefinitions="Auto,Auto,Auto">
-                                        <TextBlock Grid.Row="0"
+                                    <Grid ColumnDefinitions="Auto,*"
+                                          ColumnSpacing="8">
+                                        <Grid Grid.Column="0"
+                                              RowDefinitions="*,*"
+                                              RowSpacing="4"
+                                              Width="24"
+                                              VerticalAlignment="Center">
+                                            <Button Grid.Row="0"
+                                                    Command="{Binding DataContext.MoveRunnerUpCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                    CommandParameter="{Binding}"
+                                                    ToolTip.Tip="Move project up"
+                                                    Width="22"
+                                                    Height="22"
+                                                    Padding="0">
+                                                <i:Icon Value="fa-solid fa-arrow-up"
+                                                        FontSize="10"
+                                                        VerticalAlignment="Center"
+                                                        HorizontalAlignment="Center" />
+                                            </Button>
+                                            <Button Grid.Row="1"
+                                                    Command="{Binding DataContext.MoveRunnerDownCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                    CommandParameter="{Binding}"
+                                                    ToolTip.Tip="Move project down"
+                                                    Width="22"
+                                                    Height="22"
+                                                    Padding="0">
+                                                <i:Icon Value="fa-solid fa-arrow-down"
+                                                        FontSize="10"
+                                                        VerticalAlignment="Center"
+                                                        HorizontalAlignment="Center" />
+                                            </Button>
+                                        </Grid>
+                                        <Grid Grid.Column="1"
+                                              RowDefinitions="Auto,Auto,Auto">
+                                            <TextBlock Grid.Row="0"
                                                    Text="{Binding Header}"
                                                    FontWeight="SemiBold"
                                                    TextTrimming="CharacterEllipsis" />
-                                        <Border Grid.Row="1"
+                                            <Border Grid.Row="1"
                                                 HorizontalAlignment="Left"
                                                 Margin="0,3,0,2"
                                                 Padding="7,2"
@@ -105,12 +140,13 @@
                                                            FontSize="11"
                                                            FontWeight="SemiBold" />
                                             </Grid>
-                                        </Border>
-                                        <TextBlock Grid.Row="2"
+                                            </Border>
+                                            <TextBlock Grid.Row="2"
                                                    Text="{Binding WorkingDirectory}"
                                                    Opacity="0.78"
                                                    FontSize="12"
                                                    TextTrimming="CharacterEllipsis" />
+                                        </Grid>
                                     </Grid>
                                 </Border>
                             </DataTemplate>
@@ -203,7 +239,8 @@
                                 <TextBlock Text="Failure details" />
                             </StackPanel>
                         </Button>
-                        <Button Command="{Binding SaveConfigCommand}">
+                        <Button Command="{Binding SaveConfigCommand}"
+                                IsEnabled="{Binding IsSettingsDirty}">
                             <StackPanel Orientation="Horizontal"
                                         Spacing="6">
                                 <i:Icon Value="fa-solid fa-floppy-disk"
@@ -261,7 +298,7 @@
             <Border Grid.Row="2"
                     Padding="16">
                 <Grid ColumnDefinitions="*,*"
-                      RowDefinitions="Auto,Auto,Auto,Auto"
+                      RowDefinitions="Auto,Auto,Auto,Auto,Auto"
                       ColumnSpacing="14"
                       RowSpacing="10">
                     <StackPanel Grid.Row="0"
@@ -277,8 +314,16 @@
                                 Spacing="4">
                         <TextBlock Text="Type"
                                    FontWeight="SemiBold" />
-                        <TextBox Text="{Binding SelectedRunner.Type}"
-                                 IsReadOnly="True" />
+                        <ComboBox ItemsSource="{Binding SelectedRunner.AvailableTypes}"
+                                  SelectedItem="{Binding SelectedRunner.SelectedTypeOption, Mode=TwoWay}"
+                                  IsEnabled="{Binding SelectedRunner.CanEditType}"
+                                  HorizontalAlignment="Stretch">
+                            <ComboBox.ItemTemplate>
+                                <DataTemplate DataType="vm:RunnerTypeOption">
+                                    <TextBlock Text="{Binding DisplayName}" />
+                                </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                        </ComboBox>
                     </StackPanel>
 
                     <StackPanel Grid.Row="1"
@@ -323,6 +368,14 @@
                     </StackPanel>
 
                     <StackPanel Grid.Row="3"
+                                Grid.Column="0"
+                                Grid.ColumnSpan="2"
+                                Spacing="4">
+                        <CheckBox Content="Clean before restore"
+                                  IsChecked="{Binding SelectedRunner.CleanBeforeRestore}" />
+                    </StackPanel>
+
+                    <StackPanel Grid.Row="4"
                                 Grid.Column="0"
                                 Grid.ColumnSpan="2"
                                 Spacing="4">

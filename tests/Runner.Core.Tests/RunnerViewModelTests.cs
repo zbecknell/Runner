@@ -9,6 +9,7 @@ public sealed class RunnerViewModelTests
     [Theory]
     [InlineData(RunnerStatus.Running, "#166534", "#ECFDF5", "#22C55E", "fa-solid fa-circle-play", IconAnimation.None)]
     [InlineData(RunnerStatus.Failed, "#991B1B", "#FEF2F2", "#EF4444", "fa-solid fa-triangle-exclamation", IconAnimation.None)]
+    [InlineData(RunnerStatus.Cleaning, "#1D4ED8", "#EFF6FF", "#60A5FA", "fa-solid fa-spinner", IconAnimation.Spin)]
     [InlineData(RunnerStatus.Restoring, "#1D4ED8", "#EFF6FF", "#60A5FA", "fa-solid fa-spinner", IconAnimation.Spin)]
     [InlineData(RunnerStatus.Building, "#1D4ED8", "#EFF6FF", "#60A5FA", "fa-solid fa-spinner", IconAnimation.Spin)]
     [InlineData(RunnerStatus.Starting, "#1D4ED8", "#EFF6FF", "#60A5FA", "fa-solid fa-spinner", IconAnimation.Spin)]
@@ -35,6 +36,7 @@ public sealed class RunnerViewModelTests
     [InlineData(RunnerStatus.Running, "Restart", "fa-solid fa-rotate-right", IconAnimation.None, "Restart", true)]
     [InlineData(RunnerStatus.Failed, "Start", "fa-solid fa-play", IconAnimation.None, "Start", true)]
     [InlineData(RunnerStatus.Stopped, "Start", "fa-solid fa-play", IconAnimation.None, "Start", true)]
+    [InlineData(RunnerStatus.Cleaning, "Cleaning", "fa-solid fa-spinner", IconAnimation.Spin, "Cleaning", false)]
     [InlineData(RunnerStatus.Restoring, "Restoring", "fa-solid fa-spinner", IconAnimation.Spin, "Restoring", false)]
     [InlineData(RunnerStatus.Building, "Building", "fa-solid fa-spinner", IconAnimation.Spin, "Building", false)]
     [InlineData(RunnerStatus.Starting, "Starting", "fa-solid fa-spinner", IconAnimation.Spin, "Starting", false)]
@@ -57,6 +59,20 @@ public sealed class RunnerViewModelTests
     }
 
     [Theory]
+    [InlineData(RunnerStatus.Stopped)]
+    [InlineData(RunnerStatus.Failed)]
+    public void PrimaryRunProperties_ForBuildOnlyProject_ShowBuildAction(RunnerStatus status)
+    {
+        var viewModel = CreateViewModel(new FakeRunner(status, type: RunnerType.DotNetProjectBuild));
+
+        Assert.Equal("Build", viewModel.PrimaryRunText);
+        Assert.Equal("fa-solid fa-hammer", viewModel.PrimaryRunIconValue);
+        Assert.Equal("Build", viewModel.PrimaryRunToolTip);
+        Assert.True(viewModel.CanRunPrimary);
+    }
+
+    [Theory]
+    [InlineData(RunnerStatus.Cleaning, true)]
     [InlineData(RunnerStatus.Restoring, true)]
     [InlineData(RunnerStatus.Building, true)]
     [InlineData(RunnerStatus.Starting, true)]
@@ -122,6 +138,28 @@ public sealed class RunnerViewModelTests
         Assert.Equal("", viewModel.FailureDetailsText);
     }
 
+    [Fact]
+    public async Task TypeChange_RecreatesBackingRunner()
+    {
+        var definition = new RunnerDefinition
+        {
+            DisplayName = "Switchable runner",
+            Type = RunnerType.DotNetProject,
+            WorkingDirectory = Path.GetTempPath()
+        };
+        var factory = new RecordingRunnerFactory();
+        var viewModel = new RunnerViewModel(definition, factory);
+
+        viewModel.Type = RunnerType.DotNetProjectBuild;
+        await viewModel.StartAsync();
+
+        Assert.Equal(RunnerType.DotNetProjectBuild, viewModel.Type);
+        Assert.Equal(2, factory.Created.Count);
+        Assert.Equal(1, factory.Created[0].DisposeCount);
+        Assert.Equal(0, factory.Created[0].StartCount);
+        Assert.Equal(1, factory.Created[1].StartCount);
+    }
+
     private static RunnerViewModel CreateViewModel(FakeRunner runner)
     {
         return new RunnerViewModel(runner.Definition, new FakeRunnerFactory(runner));
@@ -144,10 +182,14 @@ public sealed class RunnerViewModelTests
 
     private sealed class FakeRunner : IRunner
     {
-        public FakeRunner(RunnerStatus status, RunnerFailureDetails? lastFailure = null)
+        public FakeRunner(
+            RunnerStatus status,
+            RunnerFailureDetails? lastFailure = null,
+            RunnerType type = RunnerType.DotNetProject)
         {
             Status = status;
             LastFailure = lastFailure;
+            Definition.Type = type;
         }
 
         public event EventHandler<RunnerStatus>? StatusChanged;
@@ -188,6 +230,66 @@ public sealed class RunnerViewModelTests
 
         public ValueTask DisposeAsync()
         {
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed class RecordingRunnerFactory : IRunnerFactory
+    {
+        public List<RecordingRunner> Created { get; } = [];
+
+        public IRunner Create(RunnerDefinition definition)
+        {
+            var runner = new RecordingRunner(definition.Clone());
+            Created.Add(runner);
+            return runner;
+        }
+    }
+
+    private sealed class RecordingRunner : IRunner
+    {
+        public RecordingRunner(RunnerDefinition definition)
+        {
+            Definition = definition;
+        }
+
+        public event EventHandler<RunnerStatus>? StatusChanged;
+
+        public RunnerDefinition Definition { get; }
+
+        public RunnerStatus Status { get; private set; }
+
+        public int? ProcessId => null;
+
+        public RunnerFailureDetails? LastFailure => null;
+
+        public int StartCount { get; private set; }
+
+        public int DisposeCount { get; private set; }
+
+        public Task StartAsync(CancellationToken cancellationToken = default)
+        {
+            StartCount++;
+            StatusChanged?.Invoke(this, Status);
+            return Task.CompletedTask;
+        }
+
+        public Task StopAsync(CancellationToken cancellationToken = default)
+        {
+            Status = RunnerStatus.Stopped;
+            StatusChanged?.Invoke(this, Status);
+            return Task.CompletedTask;
+        }
+
+        public async Task RestartAsync(CancellationToken cancellationToken = default)
+        {
+            await StopAsync(cancellationToken);
+            await StartAsync(cancellationToken);
+        }
+
+        public ValueTask DisposeAsync()
+        {
+            DisposeCount++;
             return ValueTask.CompletedTask;
         }
     }

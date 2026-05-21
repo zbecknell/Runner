@@ -29,6 +29,21 @@ public sealed class RunnerDefinitionValidatorTests
     }
 
     [Fact]
+    public void Validate_AcceptsExistingDotNetProjectBuildDirectory()
+    {
+        using var directory = TempDirectory.Create();
+
+        var errors = RunnerDefinitionValidator.Validate(new RunnerDefinition
+        {
+            DisplayName = "Worker build",
+            Type = RunnerType.DotNetProjectBuild,
+            WorkingDirectory = directory.Path
+        });
+
+        Assert.Empty(errors);
+    }
+
+    [Fact]
     public void Validate_RejectsMissingProjectPath()
     {
         using var directory = TempDirectory.Create();

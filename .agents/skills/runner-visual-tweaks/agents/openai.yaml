@@ -1,0 +1,4 @@
+interface:
+  display_name: "Runner Visual Tweaks"
+  short_description: "Run Runner and capture UI screenshots"
+  default_prompt: "Use $runner-visual-tweaks to adjust the Runner app visually and verify the result with screenshots."

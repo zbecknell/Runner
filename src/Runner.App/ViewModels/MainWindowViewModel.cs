@@ -392,6 +392,7 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
             WorkingDirectory = source.WorkingDirectory,
             Command = source.Command,
             Arguments = source.Arguments,
+            CleanBeforeRestore = source.CleanBeforeRestore,
             EnvironmentVariables = new Dictionary<string, string>(
                 source.EnvironmentVariables,
                 StringComparer.OrdinalIgnoreCase)
@@ -443,6 +444,24 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         await runner.DisposeAsync();
         SelectedRunner = Runners.Count == 0 ? null : Runners[Math.Min(nextSelectionIndex, Runners.Count - 1)];
         await SaveConfigAsync("Removed runner.", saveRunnerChanges: true);
+    }
+
+    [RelayCommand(CanExecute = nameof(CanMoveRunnerUp))]
+    private void MoveRunnerUp(RunnerViewModel? runner)
+    {
+        if (runner is not null)
+        {
+            MoveRunner(runner, Runners.IndexOf(runner) - 1);
+        }
+    }
+
+    [RelayCommand(CanExecute = nameof(CanMoveRunnerDown))]
+    private void MoveRunnerDown(RunnerViewModel? runner)
+    {
+        if (runner is not null)
+        {
+            MoveRunner(runner, Runners.IndexOf(runner) + 1);
+        }
     }
 
     [RelayCommand(CanExecute = nameof(CanStartSelected))]
@@ -594,9 +613,13 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
 
         try
         {
-            StatusMessage = $"Starting {runner.Header}...";
+            StatusMessage = runner.IsBuildOnly
+                ? $"Building {runner.Header}..."
+                : $"Starting {runner.Header}...";
             await runner.StartAsync();
-            StatusMessage = $"Started {runner.Header}.";
+            StatusMessage = runner.IsBuildOnly
+                ? $"Built {runner.Header}."
+                : $"Started {runner.Header}.";
         }
         catch (Exception ex)
         {
@@ -651,6 +674,12 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
             return;
         }
 
+        if (runner.IsBuildOnly)
+        {
+            await StartRunnerAsync(runner);
+            return;
+        }
+
         try
         {
             StatusMessage = $"Restarting {runner.Header}...";
@@ -701,6 +730,30 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         return runner;
     }
 
+    public bool MoveRunner(RunnerViewModel runner, int targetIndex)
+    {
+        var currentIndex = Runners.IndexOf(runner);
+
+        if (currentIndex < 0 || Runners.Count < 2)
+        {
+            return false;
+        }
+
+        var clampedTargetIndex = Math.Clamp(targetIndex, 0, Runners.Count - 1);
+
+        if (currentIndex == clampedTargetIndex)
+        {
+            return false;
+        }
+
+        Runners.Move(currentIndex, clampedTargetIndex);
+        SelectedRunner = runner;
+        IsSettingsDirty = true;
+        StatusMessage = "Reordered projects.";
+        RefreshCommandStates();
+        return true;
+    }
+
     public void DiscardSettingsChanges()
     {
         _suppressSettingsDirtyTracking = true;
@@ -718,11 +771,15 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
                 }
 
                 runner.DisplayName = savedDefinition.DisplayName;
+                runner.Type = savedDefinition.Type;
                 runner.WorkingDirectory = savedDefinition.WorkingDirectory;
                 runner.Command = savedDefinition.Command;
                 runner.Arguments = savedDefinition.Arguments;
+                runner.CleanBeforeRestore = savedDefinition.CleanBeforeRestore;
                 runner.EnvironmentVariablesText = FormatEnvironmentVariables(savedDefinition.EnvironmentVariables);
             }
+
+            RestoreSavedRunnerOrder();
         }
         finally
         {
@@ -788,9 +845,11 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
 
         if (!_suppressSettingsDirtyTracking
             && e.PropertyName is nameof(RunnerViewModel.DisplayName)
+                or nameof(RunnerViewModel.Type)
                 or nameof(RunnerViewModel.WorkingDirectory)
                 or nameof(RunnerViewModel.Command)
                 or nameof(RunnerViewModel.Arguments)
+                or nameof(RunnerViewModel.CleanBeforeRestore)
                 or nameof(RunnerViewModel.EnvironmentVariablesText))
         {
             IsSettingsDirty = true;
@@ -807,6 +866,8 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         AddRunnerCommand.NotifyCanExecuteChanged();
         CloneSelectedCommand.NotifyCanExecuteChanged();
         RemoveSelectedCommand.NotifyCanExecuteChanged();
+        MoveRunnerUpCommand.NotifyCanExecuteChanged();
+        MoveRunnerDownCommand.NotifyCanExecuteChanged();
         BrowseWorkingDirectoryCommand.NotifyCanExecuteChanged();
         StartSelectedCommand.NotifyCanExecuteChanged();
         StopSelectedCommand.NotifyCanExecuteChanged();
@@ -838,6 +899,19 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         return runner?.CanRunPrimary == true;
     }
 
+    private bool CanMoveRunnerUp(RunnerViewModel? runner)
+    {
+        return runner is not null && Runners.IndexOf(runner) > 0;
+    }
+
+    private bool CanMoveRunnerDown(RunnerViewModel? runner)
+    {
+        return runner is not null
+            && Runners.IndexOf(runner) is var index
+            && index >= 0
+            && index < Runners.Count - 1;
+    }
+
     private void RequestOpenSettings()
     {
         SettingsOpenRequested?.Invoke(this, EventArgs.Empty);
@@ -846,6 +920,26 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
     private void CaptureSavedDefinitionsSnapshot()
     {
         _lastSavedDefinitions = Runners.Select(runner => runner.Definition.Clone()).ToList();
+    }
+
+    private void RestoreSavedRunnerOrder()
+    {
+        for (var savedIndex = 0; savedIndex < _lastSavedDefinitions.Count; savedIndex++)
+        {
+            var savedDefinition = _lastSavedDefinitions[savedIndex];
+            var currentIndex = Runners
+                .Select((runner, index) => new { runner, index })
+                .FirstOrDefault(item => string.Equals(
+                    item.runner.Id,
+                    savedDefinition.Id,
+                    StringComparison.Ordinal))
+                ?.index;
+
+            if (currentIndex is { } index && index != savedIndex)
+            {
+                Runners.Move(index, savedIndex);
+            }
+        }
     }
 
     private static string FormatEnvironmentVariables(IReadOnlyDictionary<string, string> environmentVariables)

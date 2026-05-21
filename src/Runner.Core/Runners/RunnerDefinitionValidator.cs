@@ -11,7 +11,7 @@ public static class RunnerDefinitionValidator
             errors.Add("Display name is required.");
         }
 
-        if (definition.Type != RunnerType.DotNetProject)
+        if (definition.Type is not (RunnerType.DotNetProject or RunnerType.DotNetProjectBuild))
         {
             errors.Add($"Runner type '{definition.Type}' is not supported yet.");
         }
@@ -25,7 +25,8 @@ public static class RunnerDefinitionValidator
             errors.Add($"Working directory does not exist: {definition.WorkingDirectory}");
         }
 
-        if (definition.Type == RunnerType.DotNetProject && !string.IsNullOrWhiteSpace(definition.Command))
+        if (definition.Type is (RunnerType.DotNetProject or RunnerType.DotNetProjectBuild)
+            && !string.IsNullOrWhiteSpace(definition.Command))
         {
             var projectPath = Path.IsPathRooted(definition.Command)
                 ? definition.Command

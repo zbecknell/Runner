@@ -14,6 +14,8 @@ public sealed class RunnerDefinition
 
     public string Arguments { get; set; } = "";
 
+    public bool CleanBeforeRestore { get; set; }
+
     public Dictionary<string, string> EnvironmentVariables { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     public void EnsureId()
@@ -34,6 +36,7 @@ public sealed class RunnerDefinition
             WorkingDirectory = WorkingDirectory,
             Command = Command,
             Arguments = Arguments,
+            CleanBeforeRestore = CleanBeforeRestore,
             EnvironmentVariables = new Dictionary<string, string>(EnvironmentVariables, StringComparer.OrdinalIgnoreCase)
         };
     }
