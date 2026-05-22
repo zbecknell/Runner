@@ -15,6 +15,9 @@ public sealed class RunnerConfigStoreTests
         await store.SaveAsync(new RunnerConfig
         {
             AlwaysOnTop = true,
+            ShowNewestLogsFirst = false,
+            ShowProjectPaths = false,
+            RunnerOpacity = 0.45,
             WindowPlacement = new WindowPlacement
             {
                 X = 120,
@@ -30,6 +33,14 @@ public sealed class RunnerConfigStoreTests
                 Width = 1000,
                 Height = 720,
                 IsMaximized = false
+            },
+            DetailsWindowPlacement = new WindowPlacement
+            {
+                X = 300,
+                Y = 220,
+                Width = 960,
+                Height = 640,
+                IsMaximized = true
             },
             Runners =
             [
@@ -53,6 +64,9 @@ public sealed class RunnerConfigStoreTests
         var loaded = await store.LoadAsync();
 
         Assert.True(loaded.AlwaysOnTop);
+        Assert.False(loaded.ShowNewestLogsFirst);
+        Assert.False(loaded.ShowProjectPaths);
+        Assert.Equal(0.45, loaded.RunnerOpacity);
         Assert.NotNull(loaded.WindowPlacement);
         Assert.Equal(120, loaded.WindowPlacement.X);
         Assert.Equal(80, loaded.WindowPlacement.Y);
@@ -65,6 +79,12 @@ public sealed class RunnerConfigStoreTests
         Assert.Equal(1000, loaded.SettingsWindowPlacement.Width);
         Assert.Equal(720, loaded.SettingsWindowPlacement.Height);
         Assert.False(loaded.SettingsWindowPlacement.IsMaximized);
+        Assert.NotNull(loaded.DetailsWindowPlacement);
+        Assert.Equal(300, loaded.DetailsWindowPlacement.X);
+        Assert.Equal(220, loaded.DetailsWindowPlacement.Y);
+        Assert.Equal(960, loaded.DetailsWindowPlacement.Width);
+        Assert.Equal(640, loaded.DetailsWindowPlacement.Height);
+        Assert.True(loaded.DetailsWindowPlacement.IsMaximized);
         var runner = Assert.Single(loaded.Runners);
         Assert.Equal("runner-1", runner.Id);
         Assert.Equal("API", runner.DisplayName);
@@ -105,6 +125,49 @@ public sealed class RunnerConfigStoreTests
     }
 
     [Fact]
+    public async Task LoadAsync_WhenLogOrderPreferenceIsMissing_DefaultsToNewestFirst()
+    {
+        using var directory = TempDirectory.Create();
+        var path = Path.Combine(directory.Path, "settings.json");
+        var store = new RunnerConfigStore(path);
+
+        await File.WriteAllTextAsync(
+            path,
+            """
+            {
+              "alwaysOnTop": true,
+              "runners": []
+            }
+            """);
+
+        var config = await store.LoadAsync();
+
+        Assert.True(config.ShowNewestLogsFirst);
+    }
+
+    [Fact]
+    public async Task LoadAsync_WhenGeneralPreferencesAreMissing_DefaultsToPathsShownAndFullOpacity()
+    {
+        using var directory = TempDirectory.Create();
+        var path = Path.Combine(directory.Path, "settings.json");
+        var store = new RunnerConfigStore(path);
+
+        await File.WriteAllTextAsync(
+            path,
+            """
+            {
+              "alwaysOnTop": true,
+              "runners": []
+            }
+            """);
+
+        var config = await store.LoadAsync();
+
+        Assert.True(config.ShowProjectPaths);
+        Assert.Equal(1.0, config.RunnerOpacity);
+    }
+
+    [Fact]
     public async Task SaveAsyncAndLoadAsync_RoundTripsBuildOnlyProjectType()
     {
         using var directory = TempDirectory.Create();
@@ -139,8 +202,12 @@ public sealed class RunnerConfigStoreTests
         var config = await store.LoadAsync();
 
         Assert.False(config.AlwaysOnTop);
+        Assert.True(config.ShowNewestLogsFirst);
+        Assert.True(config.ShowProjectPaths);
+        Assert.Equal(1.0, config.RunnerOpacity);
         Assert.Null(config.WindowPlacement);
         Assert.Null(config.SettingsWindowPlacement);
+        Assert.Null(config.DetailsWindowPlacement);
         Assert.Empty(config.Runners);
     }
 }

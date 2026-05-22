@@ -374,6 +374,12 @@ public sealed partial class RunnerViewModel : ViewModelBase, IAsyncDisposable
 
     public string FailureDetailsText => FormatFailureDetails(_runner.LastFailure);
 
+    public IReadOnlyList<string> LogLines => _runner.LogLines;
+
+    public string LogText => FormatLogLines(LogLines);
+
+    public bool HasLogs => LogLines.Count > 0;
+
     public async Task CleanAsync(CancellationToken cancellationToken = default)
     {
         ClearFinishedState();
@@ -464,6 +470,13 @@ public sealed partial class RunnerViewModel : ViewModelBase, IAsyncDisposable
         IsFailureDetailsVisible = false;
     }
 
+    [RelayCommand]
+    private void ClearLogs()
+    {
+        _runner.ClearLogs();
+        RefreshLogState();
+    }
+
     private static IBrush ToBrush(string color)
     {
         return new SolidColorBrush(Color.Parse(color));
@@ -543,6 +556,13 @@ public sealed partial class RunnerViewModel : ViewModelBase, IAsyncDisposable
         return string.Join(Environment.NewLine, lines);
     }
 
+    private static string FormatLogLines(IReadOnlyList<string> logLines)
+    {
+        return logLines.Count == 0
+            ? ""
+            : string.Join(Environment.NewLine, logLines);
+    }
+
     private void OnStatusChanged(object? sender, RunnerStatus status)
     {
         Dispatcher.UIThread.Post(() =>
@@ -557,6 +577,7 @@ public sealed partial class RunnerViewModel : ViewModelBase, IAsyncDisposable
         Status = _runner.Status;
         ProcessId = _runner.ProcessId;
         RefreshFailureState();
+        RefreshLogState();
     }
 
     private void RecreateRunner()
@@ -608,6 +629,13 @@ public sealed partial class RunnerViewModel : ViewModelBase, IAsyncDisposable
         OnPropertyChanged(nameof(FailureDetailsText));
         OnPropertyChanged(nameof(IsFailureDetailsVisible));
         ShowFailureDetailsCommand.NotifyCanExecuteChanged();
+    }
+
+    public void RefreshLogState()
+    {
+        OnPropertyChanged(nameof(LogLines));
+        OnPropertyChanged(nameof(LogText));
+        OnPropertyChanged(nameof(HasLogs));
     }
 }
 

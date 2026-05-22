@@ -12,6 +12,10 @@ public interface IRunner : IAsyncDisposable
 
     RunnerFailureDetails? LastFailure { get; }
 
+    IReadOnlyList<string> LogLines { get; }
+
+    void ClearLogs();
+
     Task CleanAsync(CancellationToken cancellationToken = default);
 
     Task BuildAsync(CancellationToken cancellationToken = default);

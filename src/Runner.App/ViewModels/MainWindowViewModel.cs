@@ -24,10 +24,17 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
     private bool _isUpdateDownloaded;
     private bool _isUpdating;
     private bool _isSettingsDirty;
+    private bool _isGeneralSettingsSelected = true;
+    private bool _isProjectsSettingsSelected;
+    private double _runnerOpacity = 1.0;
+    private bool _showProjectPaths = true;
+    private bool _showNewestLogsFirst = true;
     private bool _suppressSettingsDirtyTracking;
     private bool _suppressAlwaysOnTopSave;
+    private bool _suppressLogOrderSave;
     private List<RunnerDefinition> _lastSavedDefinitions = [];
     private RunnerViewModel? _selectedRunner;
+    private WindowPlacement? _detailsWindowPlacement;
     private WindowPlacement? _settingsWindowPlacement;
     private string _statusMessage = "Loading configuration...";
     private int _updateProgress;
@@ -90,6 +97,8 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
 
     public event EventHandler? SettingsOpenRequested;
 
+    public event EventHandler<RunnerViewModel>? RunnerDetailsOpenRequested;
+
     public string ConfigPath => _configStore.FilePath;
 
     public WindowPlacement? WindowPlacement
@@ -102,6 +111,12 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
     {
         get => _settingsWindowPlacement;
         private set => SetProperty(ref _settingsWindowPlacement, value);
+    }
+
+    public WindowPlacement? DetailsWindowPlacement
+    {
+        get => _detailsWindowPlacement;
+        private set => SetProperty(ref _detailsWindowPlacement, value);
     }
 
     public bool AlwaysOnTop
@@ -127,6 +142,88 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
     {
         get => _isSettingsDirty;
         private set => SetProperty(ref _isSettingsDirty, value);
+    }
+
+    public bool IsGeneralSettingsSelected
+    {
+        get => _isGeneralSettingsSelected;
+        set
+        {
+            if (SetProperty(ref _isGeneralSettingsSelected, value) && value)
+            {
+                IsProjectsSettingsSelected = false;
+            }
+        }
+    }
+
+    public bool IsProjectsSettingsSelected
+    {
+        get => _isProjectsSettingsSelected;
+        set
+        {
+            if (SetProperty(ref _isProjectsSettingsSelected, value) && value)
+            {
+                IsGeneralSettingsSelected = false;
+            }
+        }
+    }
+
+    public bool ShowProjectPaths
+    {
+        get => _showProjectPaths;
+        set
+        {
+            if (SetProperty(ref _showProjectPaths, value) && !_isLoading)
+            {
+                _ = SaveConfigAsync("Saved project path preference.", saveRunnerChanges: false);
+            }
+        }
+    }
+
+    public double RunnerOpacity
+    {
+        get => _runnerOpacity;
+        set
+        {
+            var clampedValue = ClampRunnerOpacity(value);
+
+            if (SetProperty(ref _runnerOpacity, clampedValue))
+            {
+                OnPropertyChanged(nameof(RunnerOpacityPercent));
+                OnPropertyChanged(nameof(RunnerOpacityDisplayText));
+
+                if (!_isLoading)
+                {
+                    _ = SaveConfigAsync("Saved runner opacity preference.", saveRunnerChanges: false);
+                }
+            }
+        }
+    }
+
+    public double RunnerOpacityPercent
+    {
+        get => Math.Round(RunnerOpacity * 100);
+        set => RunnerOpacity = value / 100;
+    }
+
+    public bool ShowNewestLogsFirst
+    {
+        get => _showNewestLogsFirst;
+        set
+        {
+            if (SetProperty(ref _showNewestLogsFirst, value))
+            {
+                OnPropertyChanged(nameof(LogOrderToolTip));
+                OnPropertyChanged(nameof(LogOrderIconValue));
+                OnPropertyChanged(nameof(LogOrderButtonBackground));
+                OnPropertyChanged(nameof(LogOrderIconForeground));
+
+                if (!_isLoading && !_suppressLogOrderSave)
+                {
+                    _ = SaveConfigAsync("Saved log order preference.", saveRunnerChanges: false);
+                }
+            }
+        }
     }
 
     public RunnerViewModel? SelectedRunner
@@ -252,6 +349,16 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
 
     public string AlwaysOnTopToolTip => AlwaysOnTop ? "Disable always on top" : "Keep window on top";
 
+    public string LogOrderToolTip => ShowNewestLogsFirst
+        ? "Showing newest logs first"
+        : "Showing oldest logs first";
+
+    public string LogOrderIconValue => ShowNewestLogsFirst
+        ? "fa-solid fa-arrow-down-wide-short"
+        : "fa-solid fa-arrow-up-wide-short";
+
+    public string RunnerOpacityDisplayText => $"{RunnerOpacityPercent:0}%";
+
     public string UpdateActionText
     {
         get
@@ -282,6 +389,10 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
 
     public IBrush AlwaysOnTopButtonBackground => ToBrush(AlwaysOnTop ? "#DBEAFE" : "#00000000");
 
+    public IBrush LogOrderButtonBackground => ToBrush(ShowNewestLogsFirst ? "#DBEAFE" : "#00000000");
+
+    public IBrush LogOrderIconForeground => ToBrush(ShowNewestLogsFirst ? "#2563EB" : "#667085");
+
     public async Task LoadAsync(CancellationToken cancellationToken = default)
     {
         try
@@ -291,8 +402,12 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
             var config = await _configStore.LoadAsync(cancellationToken);
 
             AlwaysOnTop = config.AlwaysOnTop;
+            ShowProjectPaths = config.ShowProjectPaths;
+            RunnerOpacity = config.RunnerOpacity;
+            ShowNewestLogsFirst = config.ShowNewestLogsFirst;
             SetLoadedWindowPlacement(config.WindowPlacement);
             SetLoadedSettingsWindowPlacement(config.SettingsWindowPlacement);
+            SetLoadedDetailsWindowPlacement(config.DetailsWindowPlacement);
             Runners.Clear();
 
             foreach (var definition in config.Runners)
@@ -385,6 +500,7 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         var runner = AddRunnerViewModel(definition);
         SelectedRunner = runner;
         await SaveConfigAsync("Added runner.", saveRunnerChanges: true);
+        IsProjectsSettingsSelected = true;
         RequestOpenSettings();
     }
 
@@ -592,6 +708,14 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         return SaveConfigAsync("Saved settings window placement.", saveRunnerChanges: false, cancellationToken);
     }
 
+    public Task SaveDetailsWindowPlacementAsync(
+        WindowPlacement placement,
+        CancellationToken cancellationToken = default)
+    {
+        DetailsWindowPlacement = placement;
+        return SaveConfigAsync("Saved details window placement.", saveRunnerChanges: false, cancellationToken);
+    }
+
     private void SetLoadedWindowPlacement(WindowPlacement? placement)
     {
         if (!SetProperty(ref _windowPlacement, placement, nameof(WindowPlacement)))
@@ -608,10 +732,42 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         }
     }
 
+    private void SetLoadedDetailsWindowPlacement(WindowPlacement? placement)
+    {
+        if (!SetProperty(ref _detailsWindowPlacement, placement, nameof(DetailsWindowPlacement)))
+        {
+            OnPropertyChanged(nameof(DetailsWindowPlacement));
+        }
+    }
+
     [RelayCommand]
     private void OpenSettings()
     {
         RequestOpenSettings();
+    }
+
+    [RelayCommand]
+    private void ShowGeneralSettings()
+    {
+        IsGeneralSettingsSelected = true;
+    }
+
+    [RelayCommand]
+    private void ShowProjectsSettings()
+    {
+        IsProjectsSettingsSelected = true;
+    }
+
+    [RelayCommand(CanExecute = nameof(CanOpenRunnerDetails))]
+    private void OpenRunnerDetails(RunnerViewModel? runner)
+    {
+        if (runner is null)
+        {
+            return;
+        }
+
+        SelectedRunner = runner;
+        RunnerDetailsOpenRequested?.Invoke(this, runner);
     }
 
     [RelayCommand]
@@ -631,6 +787,26 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         if (!_isLoading)
         {
             await SaveConfigAsync("Saved always-on-top preference.", saveRunnerChanges: false);
+        }
+    }
+
+    [RelayCommand]
+    private async Task ToggleLogOrderAsync()
+    {
+        _suppressLogOrderSave = true;
+
+        try
+        {
+            ShowNewestLogsFirst = !ShowNewestLogsFirst;
+        }
+        finally
+        {
+            _suppressLogOrderSave = false;
+        }
+
+        if (!_isLoading)
+        {
+            await SaveConfigAsync("Saved log order preference.", saveRunnerChanges: false);
         }
     }
 
@@ -916,8 +1092,12 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
             var config = new RunnerConfig
             {
                 AlwaysOnTop = AlwaysOnTop,
+                ShowProjectPaths = ShowProjectPaths,
+                RunnerOpacity = RunnerOpacity,
+                ShowNewestLogsFirst = ShowNewestLogsFirst,
                 WindowPlacement = WindowPlacement,
                 SettingsWindowPlacement = SettingsWindowPlacement,
+                DetailsWindowPlacement = DetailsWindowPlacement,
                 Runners = runnerDefinitions
             };
 
@@ -999,6 +1179,7 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         RunRunnerCommand.NotifyCanExecuteChanged();
         CleanRunnerCommand.NotifyCanExecuteChanged();
         BuildRunnerCommand.NotifyCanExecuteChanged();
+        OpenRunnerDetailsCommand.NotifyCanExecuteChanged();
     }
 
     private static bool CanStartRunner(RunnerViewModel? runner)
@@ -1029,6 +1210,11 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
     private static bool CanBuildRunner(RunnerViewModel? runner)
     {
         return runner?.CanBuild == true;
+    }
+
+    private static bool CanOpenRunnerDetails(RunnerViewModel? runner)
+    {
+        return runner is not null;
     }
 
     private bool CanMoveRunnerUp(RunnerViewModel? runner)
@@ -1084,5 +1270,12 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
     private static IBrush ToBrush(string color)
     {
         return new SolidColorBrush(Color.Parse(color));
+    }
+
+    private static double ClampRunnerOpacity(double value)
+    {
+        return double.IsFinite(value)
+            ? Math.Clamp(value, 0.1, 1.0)
+            : 1.0;
     }
 }

@@ -1,0 +1,193 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:Runner.App.ViewModels"
+        xmlns:i="https://github.com/projektanker/icons.avalonia"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d"
+        d:DesignWidth="900"
+        d:DesignHeight="620"
+        x:Class="Runner.App.Views.RunnerDetailsWindow"
+        x:DataType="vm:RunnerDetailsViewModel"
+        Icon="/Assets/avalonia-logo.ico"
+        Title="{Binding Runner.Header}"
+        Width="900"
+        Height="620"
+        MinWidth="700"
+        MinHeight="420"
+        Topmost="{Binding Dashboard.AlwaysOnTop}">
+
+    <Grid RowDefinitions="Auto,Auto,*">
+        <Border Grid.Row="0"
+                BorderBrush="#D0D7DE"
+                BorderThickness="0,0,0,1"
+                Padding="14,12">
+            <Grid RowDefinitions="Auto,Auto"
+                  RowSpacing="4">
+                <Grid Grid.Row="0"
+                      ColumnDefinitions="*,Auto"
+                      ColumnSpacing="12">
+                    <TextBlock Grid.Column="0"
+                               Text="{Binding Runner.Header}"
+                               FontSize="18"
+                               FontWeight="SemiBold"
+                               TextTrimming="CharacterEllipsis"
+                               VerticalAlignment="Center" />
+                    <Border Grid.Column="1"
+                            Padding="8,3"
+                            CornerRadius="4"
+                            Background="{Binding Runner.StatusBackground}"
+                            BorderBrush="{Binding Runner.StatusBorderBrush}"
+                            BorderThickness="1"
+                            VerticalAlignment="Center">
+                        <Grid ColumnDefinitions="Auto,Auto"
+                              ColumnSpacing="6">
+                            <i:Icon Grid.Column="0"
+                                    Value="{Binding Runner.StatusIconValue}"
+                                    Animation="{Binding Runner.StatusIconAnimation}"
+                                    Foreground="{Binding Runner.StatusForeground}"
+                                    FontSize="11"
+                                    VerticalAlignment="Center" />
+                            <TextBlock Grid.Column="1"
+                                       Text="{Binding Runner.StatusText}"
+                                       Foreground="{Binding Runner.StatusForeground}"
+                                       FontSize="12"
+                                       FontWeight="SemiBold" />
+                        </Grid>
+                    </Border>
+                </Grid>
+
+                <Grid Grid.Row="1"
+                      ColumnDefinitions="*,Auto"
+                      ColumnSpacing="12">
+                    <TextBlock Grid.Column="0"
+                               Text="{Binding Runner.WorkingDirectory}"
+                               Foreground="#667085"
+                               FontSize="12"
+                               TextTrimming="CharacterEllipsis"
+                               VerticalAlignment="Center" />
+                    <TextBlock Grid.Column="1"
+                               Text="{Binding Runner.ProcessText}"
+                               Foreground="#667085"
+                               FontSize="12"
+                               VerticalAlignment="Center" />
+                </Grid>
+            </Grid>
+        </Border>
+
+        <Border Grid.Row="1"
+                BorderBrush="#D0D7DE"
+                BorderThickness="0,0,0,1"
+                Padding="10,8">
+            <StackPanel Orientation="Horizontal"
+                        Spacing="6">
+                <Button Command="{Binding Dashboard.RunRunnerCommand}"
+                        CommandParameter="{Binding Runner}"
+                        ToolTip.Tip="{Binding Runner.PrimaryRunToolTip}">
+                    <StackPanel Orientation="Horizontal"
+                                Spacing="6">
+                        <i:Icon Value="{Binding Runner.PrimaryRunIconValue}"
+                                Animation="{Binding Runner.PrimaryRunIconAnimation}"
+                                FontSize="12"
+                                VerticalAlignment="Center" />
+                        <TextBlock Text="{Binding Runner.PrimaryRunText}" />
+                    </StackPanel>
+                </Button>
+                <Button Command="{Binding Dashboard.RestartRunnerCommand}"
+                        CommandParameter="{Binding Runner}">
+                    <StackPanel Orientation="Horizontal"
+                                Spacing="6">
+                        <i:Icon Value="fa-solid fa-rotate-right"
+                                FontSize="12"
+                                VerticalAlignment="Center" />
+                        <TextBlock Text="Restart" />
+                    </StackPanel>
+                </Button>
+                <Button Command="{Binding Dashboard.CleanRunnerCommand}"
+                        CommandParameter="{Binding Runner}">
+                    <StackPanel Orientation="Horizontal"
+                                Spacing="6">
+                        <i:Icon Value="fa-solid fa-broom"
+                                FontSize="12"
+                                VerticalAlignment="Center" />
+                        <TextBlock Text="Clean" />
+                    </StackPanel>
+                </Button>
+                <Button Command="{Binding Dashboard.BuildRunnerCommand}"
+                        CommandParameter="{Binding Runner}">
+                    <StackPanel Orientation="Horizontal"
+                                Spacing="6">
+                        <i:Icon Value="fa-solid fa-hammer"
+                                FontSize="12"
+                                VerticalAlignment="Center" />
+                        <TextBlock Text="Build" />
+                    </StackPanel>
+                </Button>
+                <Separator />
+                <Button Width="30"
+                        Height="30"
+                        Padding="0"
+                        Background="{Binding Dashboard.LogOrderButtonBackground}"
+                        Command="{Binding Dashboard.ToggleLogOrderCommand}"
+                        ToolTip.Tip="{Binding Dashboard.LogOrderToolTip}">
+                    <i:Icon Value="{Binding Dashboard.LogOrderIconValue}"
+                            Foreground="{Binding Dashboard.LogOrderIconForeground}"
+                            FontSize="12"
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center" />
+                </Button>
+                <Button Width="30"
+                        Height="30"
+                        Padding="0"
+                        Command="{Binding RefreshLogsCommand}"
+                        ToolTip.Tip="Refresh logs">
+                    <i:Icon Value="fa-solid fa-arrows-rotate"
+                            FontSize="12"
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center" />
+                </Button>
+                <Button Width="30"
+                        Height="30"
+                        Padding="0"
+                        Command="{Binding ClearLogsCommand}"
+                        IsEnabled="{Binding HasLogs}"
+                        ToolTip.Tip="Clear logs">
+                    <i:Icon Value="fa-solid fa-eraser"
+                            FontSize="12"
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center" />
+                </Button>
+                <Button Width="30"
+                        Height="30"
+                        Padding="0"
+                        Click="OnCopyLogsClick"
+                        IsEnabled="{Binding HasLogs}"
+                        ToolTip.Tip="Copy logs">
+                    <i:Icon Value="fa-solid fa-copy"
+                            FontSize="12"
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center" />
+                </Button>
+            </StackPanel>
+        </Border>
+
+        <Grid Grid.Row="2"
+              Margin="10">
+            <TextBlock Text="No logs captured yet."
+                       IsVisible="{Binding HasNoLogs}"
+                       Foreground="#667085"
+                       FontSize="13"
+                       HorizontalAlignment="Center"
+                       VerticalAlignment="Center" />
+            <TextBox Text="{Binding LogText, Mode=OneWay}"
+                     IsVisible="{Binding HasLogs}"
+                     IsReadOnly="True"
+                     AcceptsReturn="True"
+                     FontFamily="Consolas, Menlo, monospace"
+                     FontSize="12"
+                     TextWrapping="NoWrap"
+                     ScrollViewer.VerticalScrollBarVisibility="Auto"
+                     ScrollViewer.HorizontalScrollBarVisibility="Auto" />
+        </Grid>
+    </Grid>
+</Window>

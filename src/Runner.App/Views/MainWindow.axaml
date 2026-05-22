@@ -17,7 +17,8 @@
         MinHeight="{Binding WindowMinHeight}"
         CanResize="True"
         WindowDecorations="BorderOnly"
-        Topmost="{Binding AlwaysOnTop}">
+        Topmost="{Binding AlwaysOnTop}"
+        Opacity="{Binding RunnerOpacity}">
 
     <Grid RowDefinitions="*,Auto">
         <Grid Grid.Row="0"
@@ -77,7 +78,8 @@
                                                    Text="{Binding WorkingDirectory}"
                                                    FontSize="11"
                                                    Opacity="0.72"
-                                                   TextTrimming="CharacterEllipsis" />
+                                                   TextTrimming="CharacterEllipsis"
+                                                   IsVisible="{Binding DataContext.ShowProjectPaths, RelativeSource={RelativeSource AncestorType=Window}}" />
                                     </Grid>
 
                                     <Border Grid.Column="1"

@@ -7,7 +7,7 @@ description: Run the local Runner Avalonia desktop app, capture screenshots, and
 
 ## Workflow
 
-Use this skill for visual work in `C:\git\Runner`.
+Use this skill for visual work in `C:\git\Runner` only when the change is substantial enough that a screenshot or visual launch is likely to catch layout, styling, or interaction issues. For trivial, localized UI text or spacing changes where the expected result is obvious from the XAML, make the edit directly and skip the screenshot workflow.
 
 1. Inspect the relevant Avalonia files before editing, usually `src\Runner.App\Views\MainWindow.axaml`, nearby code-behind, and affected view models.
 2. Make narrowly scoped UI changes that fit the existing Avalonia XAML style.

@@ -19,6 +19,7 @@ public partial class MainWindow : Window
     private Task? _cleanupTask;
     private WindowPlacement? _lastNormalPlacement;
     private WindowPlacement? _pendingPlacement;
+    private RunnerDetailsWindow? _detailsWindow;
     private SettingsWindow? _settingsWindow;
     private MainWindowViewModel? _viewModel;
 
@@ -57,6 +58,31 @@ public partial class MainWindow : Window
         _settingsWindow.ApplyWindowPlacement(_viewModel.SettingsWindowPlacement);
         _settingsWindow.Show(this);
         _settingsWindow.Activate();
+    }
+
+    public void OpenRunnerDetailsWindow(RunnerViewModel runner)
+    {
+        if (_viewModel is null)
+        {
+            return;
+        }
+
+        if (_detailsWindow is { IsVisible: true }
+            && _detailsWindow.DataContext is RunnerDetailsViewModel detailsViewModel)
+        {
+            detailsViewModel.Runner = runner;
+            _detailsWindow.Activate();
+            return;
+        }
+
+        _detailsWindow = new RunnerDetailsWindow
+        {
+            DataContext = new RunnerDetailsViewModel(_viewModel, runner)
+        };
+        _detailsWindow.Closed += (_, _) => _detailsWindow = null;
+        _detailsWindow.ApplyWindowPlacement(_viewModel.DetailsWindowPlacement);
+        _detailsWindow.Show(this);
+        _detailsWindow.Activate();
     }
 
     private void ToggleSettingsWindow()
@@ -218,6 +244,7 @@ public partial class MainWindow : Window
     private async Task CleanupAndCloseAsync()
     {
         IsEnabled = false;
+        CloseDetailsWindowForShutdown();
         CloseSettingsWindowForShutdown();
 
         try
@@ -245,6 +272,17 @@ public partial class MainWindow : Window
 
         _settingsWindow.CloseWithoutConfirmation();
         _settingsWindow = null;
+    }
+
+    private void CloseDetailsWindowForShutdown()
+    {
+        if (_detailsWindow is null)
+        {
+            return;
+        }
+
+        _detailsWindow.Close();
+        _detailsWindow = null;
     }
 
     private void CaptureNormalPlacement()
@@ -310,12 +348,25 @@ public partial class MainWindow : Window
 
     private void OnDashboardPointerPressed(object? sender, PointerPressedEventArgs e)
     {
-        if (_cleanupTask is not null || e.ClickCount > 1)
+        if (_cleanupTask is not null)
         {
             return;
         }
 
         var point = e.GetCurrentPoint(this);
+
+        if (e.ClickCount > 1)
+        {
+            if (point.Properties.IsLeftButtonPressed
+                && !IsInteractiveDragSource(e.Source)
+                && TryFindVisualAncestor<ListBoxItem>(e.Source)?.DataContext is RunnerViewModel runner)
+            {
+                _viewModel?.OpenRunnerDetailsCommand.Execute(runner);
+                e.Handled = true;
+            }
+
+            return;
+        }
 
         if (!point.Properties.IsLeftButtonPressed
             || IsResizeDragStart(point.Position)
@@ -389,6 +440,8 @@ public partial class MainWindow : Window
         {
             return
             [
+                CreateRunnerMenuItem("Details", viewModel.OpenRunnerDetailsCommand, runner),
+                new Separator(),
                 CreateRunnerMenuItem("Clean", viewModel.CleanRunnerCommand, runner),
                 CreateRunnerMenuItem("Build", viewModel.BuildRunnerCommand, runner)
             ];
@@ -396,6 +449,8 @@ public partial class MainWindow : Window
 
         return
         [
+            CreateRunnerMenuItem("Details", viewModel.OpenRunnerDetailsCommand, runner),
+            new Separator(),
             CreateRunnerMenuItem("Run", viewModel.StartRunnerCommand, runner),
             CreateRunnerMenuItem("Restart", viewModel.RestartRunnerCommand, runner),
             CreateRunnerMenuItem("Stop", viewModel.StopRunnerCommand, runner),
@@ -437,6 +492,7 @@ public partial class MainWindow : Window
         if (_viewModel is not null)
         {
             _viewModel.SettingsOpenRequested -= OnSettingsOpenRequested;
+            _viewModel.RunnerDetailsOpenRequested -= OnRunnerDetailsOpenRequested;
         }
 
         _viewModel = viewModel;
@@ -444,12 +500,18 @@ public partial class MainWindow : Window
         if (_viewModel is not null)
         {
             _viewModel.SettingsOpenRequested += OnSettingsOpenRequested;
+            _viewModel.RunnerDetailsOpenRequested += OnRunnerDetailsOpenRequested;
         }
     }
 
     private void OnSettingsOpenRequested(object? sender, EventArgs e)
     {
         OpenSettingsWindow();
+    }
+
+    private void OnRunnerDetailsOpenRequested(object? sender, RunnerViewModel runner)
+    {
+        OpenRunnerDetailsWindow(runner);
     }
 
     private void OnSettingsButtonClick(object? sender, RoutedEventArgs e)

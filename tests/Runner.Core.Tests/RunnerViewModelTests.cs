@@ -1,4 +1,6 @@
 using Runner.App.ViewModels;
+using Runner.App.Services;
+using Runner.Core.Config;
 using Runner.Core.Runners;
 using Optris.Icons.Avalonia;
 
@@ -224,6 +226,76 @@ public sealed class RunnerViewModelTests
     }
 
     [Fact]
+    public void LogProperties_FollowRunnerLogLines()
+    {
+        var viewModel = CreateViewModel(new FakeRunner(
+            RunnerStatus.Running,
+            logLines: ["[12:00:00] [out] ready", "[12:00:01] [err] warning"]));
+
+        Assert.True(viewModel.HasLogs);
+        Assert.Contains("ready", viewModel.LogText);
+        Assert.Contains("warning", viewModel.LogText);
+    }
+
+    [Fact]
+    public void ClearLogsCommand_ClearsBackingRunnerLogs()
+    {
+        var viewModel = CreateViewModel(new FakeRunner(
+            RunnerStatus.Running,
+            logLines: ["[12:00:00] [out] ready"]));
+
+        viewModel.ClearLogsCommand.Execute(null);
+
+        Assert.False(viewModel.HasLogs);
+        Assert.Equal("", viewModel.LogText);
+    }
+
+    [Fact]
+    public void DetailsLogText_DefaultsToNewestFirst()
+    {
+        using var directory = TempDirectory.Create();
+        var dashboard = CreateDashboard(directory.Path);
+        var runner = CreateViewModel(new FakeRunner(
+            RunnerStatus.Running,
+            logLines:
+            [
+                "[12:00:00] [out] first",
+                "[12:00:01] [out] second"
+            ]));
+        using var details = new RunnerDetailsViewModel(dashboard, runner);
+
+        var firstRenderedLine = details.LogText.Split(Environment.NewLine)[0];
+
+        Assert.Contains("second", firstRenderedLine);
+        Assert.Equal(
+            ["[12:00:00] [out] first", "[12:00:01] [out] second"],
+            runner.LogLines);
+    }
+
+    [Fact]
+    public void DetailsLogText_CanRenderOldestFirst()
+    {
+        using var directory = TempDirectory.Create();
+        var dashboard = CreateDashboard(directory.Path);
+        dashboard.ShowNewestLogsFirst = false;
+        var runner = CreateViewModel(new FakeRunner(
+            RunnerStatus.Running,
+            logLines:
+            [
+                "[12:00:00] [out] first",
+                "[12:00:01] [out] second"
+            ]));
+        using var details = new RunnerDetailsViewModel(dashboard, runner);
+
+        var firstRenderedLine = details.LogText.Split(Environment.NewLine)[0];
+
+        Assert.Contains("first", firstRenderedLine);
+        Assert.Equal(
+            ["[12:00:00] [out] first", "[12:00:01] [out] second"],
+            runner.LogLines);
+    }
+
+    [Fact]
     public async Task TypeChange_RecreatesBackingRunner()
     {
         var definition = new RunnerDefinition
@@ -250,6 +322,14 @@ public sealed class RunnerViewModelTests
         return new RunnerViewModel(runner.Definition, new FakeRunnerFactory(runner));
     }
 
+    private static MainWindowViewModel CreateDashboard(string directory)
+    {
+        return new MainWindowViewModel(
+            new RunnerConfigStore(Path.Combine(directory, "settings.json")),
+            new RunnerFactory(),
+            NullWorkingDirectoryPicker.Instance);
+    }
+
     private sealed class FakeRunnerFactory : IRunnerFactory
     {
         private readonly FakeRunner _runner;
@@ -270,12 +350,16 @@ public sealed class RunnerViewModelTests
         public FakeRunner(
             RunnerStatus status,
             RunnerFailureDetails? lastFailure = null,
-            RunnerType type = RunnerType.DotNetProject)
+            RunnerType type = RunnerType.DotNetProject,
+            IReadOnlyList<string>? logLines = null)
         {
             Status = status;
             LastFailure = lastFailure;
             Definition.Type = type;
+            _logLines = logLines?.ToList() ?? [];
         }
+
+        private readonly List<string> _logLines;
 
         public event EventHandler<RunnerStatus>? StatusChanged;
 
@@ -291,6 +375,13 @@ public sealed class RunnerViewModelTests
         public int? ProcessId => Status == RunnerStatus.Running ? 123 : null;
 
         public RunnerFailureDetails? LastFailure { get; private set; }
+
+        public IReadOnlyList<string> LogLines => _logLines.ToArray();
+
+        public void ClearLogs()
+        {
+            _logLines.Clear();
+        }
 
         public Task CleanAsync(CancellationToken cancellationToken = default)
         {
@@ -363,6 +454,12 @@ public sealed class RunnerViewModelTests
         public int? ProcessId => null;
 
         public RunnerFailureDetails? LastFailure => null;
+
+        public IReadOnlyList<string> LogLines => [];
+
+        public void ClearLogs()
+        {
+        }
 
         public Task CleanAsync(CancellationToken cancellationToken = default)
         {

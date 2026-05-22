@@ -317,6 +317,128 @@ public sealed class DotNetProjectRunnerTests
     }
 
     [Fact]
+    public async Task StartAsync_CapturesStdoutAndStderrInLogs()
+    {
+        using var directory = TempDirectory.Create();
+        CreateFailingProject(directory.Path);
+
+        await using var runner = new DotNetProjectRunner(new RunnerDefinition
+        {
+            DisplayName = "Logging app",
+            Type = RunnerType.DotNetProject,
+            WorkingDirectory = directory.Path
+        });
+
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+
+        await runner.StartAsync(timeout.Token);
+        await WaitUntilAsync(() => runner.Status == RunnerStatus.Failed, timeout.Token);
+
+        Assert.Contains(runner.LogLines, line => line.Contains("[out] stdout detail", StringComparison.Ordinal));
+        Assert.Contains(runner.LogLines, line => line.Contains("[err] stderr detail", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task StartAsync_CapturesCleanRestoreBuildAndRunLogsChronologically()
+    {
+        using var directory = TempDirectory.Create();
+        CreatePhasedLoggingProject(directory.Path);
+
+        await using var runner = new DotNetProjectRunner(new RunnerDefinition
+        {
+            DisplayName = "Phased logging app",
+            Type = RunnerType.DotNetProject,
+            WorkingDirectory = directory.Path,
+            CleanBeforeRestore = true
+        });
+
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+
+        try
+        {
+            await runner.StartAsync(timeout.Token);
+            await WaitUntilAsync(
+                () => runner.Status == RunnerStatus.Running
+                    && runner.ProcessId is not null
+                    && runner.LogLines.Any(line => line.Contains("runner-run-phase", StringComparison.Ordinal)),
+                timeout.Token);
+
+            var logs = runner.LogLines.ToList();
+            var cleanIndex = logs.FindIndex(line => line.Contains("runner-clean-phase", StringComparison.Ordinal));
+            var restoreIndex = logs.FindIndex(line => line.Contains("runner-restore-phase", StringComparison.Ordinal));
+            var buildIndex = logs.FindIndex(line => line.Contains("runner-build-phase", StringComparison.Ordinal));
+            var runIndex = logs.FindIndex(line => line.Contains("runner-run-phase", StringComparison.Ordinal));
+
+            Assert.True(cleanIndex >= 0);
+            Assert.True(restoreIndex >= 0);
+            Assert.True(buildIndex >= 0);
+            Assert.True(runIndex >= 0);
+            Assert.True(cleanIndex < restoreIndex);
+            Assert.True(restoreIndex < buildIndex);
+            Assert.True(buildIndex < runIndex);
+        }
+        finally
+        {
+            if (runner.Status is RunnerStatus.Cleaning
+                or RunnerStatus.Restoring
+                or RunnerStatus.Building
+                or RunnerStatus.Starting
+                or RunnerStatus.Running)
+            {
+                await runner.StopAsync(CancellationToken.None);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task StartAsync_ResetsLogsAtStartOfNewOperation()
+    {
+        using var directory = TempDirectory.Create();
+        CreateSuccessfulProject(directory.Path);
+
+        await using var runner = new DotNetProjectRunner(new RunnerDefinition
+        {
+            DisplayName = "Resetting app",
+            Type = RunnerType.DotNetProject,
+            WorkingDirectory = directory.Path
+        });
+
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+
+        await runner.StartAsync(timeout.Token);
+        await WaitUntilAsync(() => runner.Status == RunnerStatus.Stopped, timeout.Token);
+        Assert.Contains(runner.LogLines, line => line.Contains("all good", StringComparison.Ordinal));
+
+        await runner.StartAsync(timeout.Token);
+        await WaitUntilAsync(() => runner.Status == RunnerStatus.Stopped, timeout.Token);
+
+        Assert.Single(runner.LogLines, line => line.Contains("all good", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task StartAsync_CapsCapturedLogs()
+    {
+        using var directory = TempDirectory.Create();
+        CreateNoisyFailingProject(directory.Path, lineCount: 2105);
+
+        await using var runner = new DotNetProjectRunner(new RunnerDefinition
+        {
+            DisplayName = "Noisy app",
+            Type = RunnerType.DotNetProject,
+            WorkingDirectory = directory.Path
+        });
+
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+
+        await runner.StartAsync(timeout.Token);
+        await WaitUntilAsync(() => runner.Status == RunnerStatus.Failed, timeout.Token);
+
+        Assert.Equal(2000, runner.LogLines.Count);
+        Assert.DoesNotContain(runner.LogLines, line => line.Contains("line-0", StringComparison.Ordinal));
+        Assert.Contains(runner.LogLines, line => line.Contains("line-2104", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task SuccessfulRun_ClearsStaleFailureDetails()
     {
         using var directory = TempDirectory.Create();
@@ -389,6 +511,54 @@ public sealed class DotNetProjectRunnerTests
             Console.WriteLine("all good");
             await Task.Delay(100);
             return 0;
+            """);
+    }
+
+    private static void CreatePhasedLoggingProject(string directory)
+    {
+        File.WriteAllText(
+            Path.Combine(directory, "Sample.csproj"),
+            """
+            <Project Sdk="Microsoft.NET.Sdk">
+              <PropertyGroup>
+                <OutputType>Exe</OutputType>
+                <TargetFramework>net10.0</TargetFramework>
+                <ImplicitUsings>enable</ImplicitUsings>
+                <Nullable>enable</Nullable>
+              </PropertyGroup>
+              <Target Name="RunnerCleanLog" BeforeTargets="Clean">
+                <Message Text="runner-clean-phase" Importance="high" />
+              </Target>
+              <Target Name="RunnerRestoreLog" BeforeTargets="Restore">
+                <Message Text="runner-restore-phase" Importance="high" />
+              </Target>
+              <Target Name="RunnerBuildLog" BeforeTargets="Build">
+                <Message Text="runner-build-phase" Importance="high" />
+              </Target>
+            </Project>
+            """);
+
+        File.WriteAllText(
+            Path.Combine(directory, "Program.cs"),
+            """
+            Console.WriteLine("runner-run-phase");
+            await Task.Delay(TimeSpan.FromMinutes(5));
+            """);
+    }
+
+    private static void CreateNoisyFailingProject(string directory, int lineCount)
+    {
+        CreateProjectFile(directory);
+
+        File.WriteAllText(
+            Path.Combine(directory, "Program.cs"),
+            $$"""
+            for (var i = 0; i < {{lineCount}}; i++)
+            {
+                Console.WriteLine($"line-{i}");
+            }
+
+            return 42;
             """);
     }
 

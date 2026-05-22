@@ -5,10 +5,11 @@ namespace Runner.Core.Runners;
 public sealed class DotNetProjectRunner : IRunner
 {
     private const int MaxDiagnosticLines = 100;
+    private const int MaxLogLines = 2000;
     private static readonly TimeSpan GracefulStopTimeout = TimeSpan.FromSeconds(2);
 
     private readonly Lock _sync = new();
-    private readonly List<string> _diagnosticTail = [];
+    private readonly List<string> _logLines = [];
     private Process? _process;
     private RunnerFailureDetails? _lastFailure;
     private RunnerStatus _status = RunnerStatus.Stopped;
@@ -53,6 +54,25 @@ public sealed class DotNetProjectRunner : IRunner
             {
                 return _lastFailure;
             }
+        }
+    }
+
+    public IReadOnlyList<string> LogLines
+    {
+        get
+        {
+            lock (_sync)
+            {
+                return _logLines.ToArray();
+            }
+        }
+    }
+
+    public void ClearLogs()
+    {
+        lock (_sync)
+        {
+            _logLines.Clear();
         }
     }
 
@@ -185,7 +205,6 @@ public sealed class DotNetProjectRunner : IRunner
             return;
         }
 
-        ClearDiagnostics();
         SetStatus(RunnerStatus.Starting);
 
         try
@@ -197,8 +216,8 @@ public sealed class DotNetProjectRunner : IRunner
                 EnableRaisingEvents = true
             };
 
-            process.OutputDataReceived += (_, args) => AddDiagnosticLine("out", args.Data);
-            process.ErrorDataReceived += (_, args) => AddDiagnosticLine("err", args.Data);
+            process.OutputDataReceived += (_, args) => AddLogLine("out", args.Data);
+            process.ErrorDataReceived += (_, args) => AddLogLine("err", args.Data);
             process.Exited += (_, _) => HandleProcessExited(process);
 
             if (!process.Start())
@@ -350,8 +369,6 @@ public sealed class DotNetProjectRunner : IRunner
         ProcessStartInfo startInfo,
         CancellationToken cancellationToken)
     {
-        ClearDiagnostics();
-
         Process? process = null;
 
         try
@@ -362,8 +379,8 @@ public sealed class DotNetProjectRunner : IRunner
                 EnableRaisingEvents = true
             };
 
-            process.OutputDataReceived += (_, args) => AddDiagnosticLine("out", args.Data);
-            process.ErrorDataReceived += (_, args) => AddDiagnosticLine("err", args.Data);
+            process.OutputDataReceived += (_, args) => AddLogLine("out", args.Data);
+            process.ErrorDataReceived += (_, args) => AddLogLine("err", args.Data);
 
             if (!process.Start())
             {
@@ -606,7 +623,7 @@ public sealed class DotNetProjectRunner : IRunner
         }
     }
 
-    private void AddDiagnosticLine(string stream, string? text)
+    private void AddLogLine(string stream, string? text)
     {
         if (string.IsNullOrWhiteSpace(text))
         {
@@ -617,11 +634,11 @@ public sealed class DotNetProjectRunner : IRunner
 
         lock (_sync)
         {
-            _diagnosticTail.Add(line);
+            _logLines.Add(line);
 
-            if (_diagnosticTail.Count > MaxDiagnosticLines)
+            if (_logLines.Count > MaxLogLines)
             {
-                _diagnosticTail.RemoveAt(0);
+                _logLines.RemoveAt(0);
             }
         }
     }
@@ -630,16 +647,8 @@ public sealed class DotNetProjectRunner : IRunner
     {
         lock (_sync)
         {
-            _diagnosticTail.Clear();
+            _logLines.Clear();
             _lastFailure = null;
-        }
-    }
-
-    private void ClearDiagnostics()
-    {
-        lock (_sync)
-        {
-            _diagnosticTail.Clear();
         }
     }
 
@@ -647,7 +656,6 @@ public sealed class DotNetProjectRunner : IRunner
     {
         lock (_sync)
         {
-            _diagnosticTail.Clear();
             _lastFailure = null;
         }
     }
@@ -661,7 +669,7 @@ public sealed class DotNetProjectRunner : IRunner
                 reason,
                 exitCode,
                 exception?.Message,
-                _diagnosticTail.ToArray());
+                _logLines.TakeLast(MaxDiagnosticLines).ToArray());
         }
     }
 

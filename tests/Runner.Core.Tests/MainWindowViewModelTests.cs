@@ -40,6 +40,29 @@ public sealed class MainWindowViewModelTests
     }
 
     [Fact]
+    public async Task OpenRunnerDetailsCommand_SelectsRunnerAndRequestsDetailsOpen()
+    {
+        using var directory = TempDirectory.Create();
+        var configStore = CreateConfigStore(
+            directory.Path,
+            CreateRunnerDefinition("First runner", directory.Path),
+            CreateRunnerDefinition("Second runner", directory.Path));
+        var viewModel = new MainWindowViewModel(
+            configStore,
+            new RunnerFactory(),
+            new FakeWorkingDirectoryPicker(null),
+            new FakeRunnerRemovalConfirmation(false));
+        await viewModel.LoadAsync();
+        var requestedRunners = new List<RunnerViewModel>();
+        viewModel.RunnerDetailsOpenRequested += (_, runner) => requestedRunners.Add(runner);
+
+        viewModel.OpenRunnerDetailsCommand.Execute(viewModel.Runners[1]);
+
+        Assert.Same(viewModel.Runners[1], viewModel.SelectedRunner);
+        Assert.Same(viewModel.Runners[1], Assert.Single(requestedRunners));
+    }
+
+    [Fact]
     public async Task AddRunnerCommand_FromEmptyDashboard_CreatesRunnerSelectsItSavesAndRequestsSettingsOpen()
     {
         using var directory = TempDirectory.Create();
@@ -447,6 +470,118 @@ public sealed class MainWindowViewModelTests
     }
 
     [Fact]
+    public async Task LoadAsync_WhenGeneralPreferencesAreMissing_DefaultsToPathsShownAndFullOpacity()
+    {
+        using var directory = TempDirectory.Create();
+        var configStore = CreateConfigStore(directory.Path);
+        var viewModel = new MainWindowViewModel(
+            configStore,
+            new RunnerFactory(),
+            new FakeWorkingDirectoryPicker(null),
+            new FakeRunnerRemovalConfirmation(false));
+
+        await viewModel.LoadAsync();
+
+        Assert.True(viewModel.ShowProjectPaths);
+        Assert.Equal(1.0, viewModel.RunnerOpacity);
+        Assert.Equal(100, viewModel.RunnerOpacityPercent);
+        Assert.Equal("100%", viewModel.RunnerOpacityDisplayText);
+    }
+
+    [Fact]
+    public async Task ShowProjectPathsEdit_SavesImmediatelyAndPreservesDirtyRunnerConfig()
+    {
+        using var directory = TempDirectory.Create();
+        var configStore = CreateConfigStore(directory.Path);
+        var viewModel = new MainWindowViewModel(
+            configStore,
+            new RunnerFactory(),
+            new FakeWorkingDirectoryPicker(null),
+            new FakeRunnerRemovalConfirmation(false));
+        await viewModel.LoadAsync();
+        viewModel.SelectedRunner!.DisplayName = "Unsaved name";
+
+        viewModel.ShowProjectPaths = false;
+
+        Assert.True(viewModel.IsSettingsDirty);
+        var savedConfig = await WaitForSavedConfigAsync(
+            configStore,
+            config => !config.ShowProjectPaths);
+        Assert.False(savedConfig.ShowProjectPaths);
+        Assert.Equal("Test app", savedConfig.Runners[0].DisplayName);
+    }
+
+    [Fact]
+    public async Task RunnerOpacityEdit_SavesImmediatelyAndPreservesDirtyRunnerConfig()
+    {
+        using var directory = TempDirectory.Create();
+        var configStore = CreateConfigStore(directory.Path);
+        var viewModel = new MainWindowViewModel(
+            configStore,
+            new RunnerFactory(),
+            new FakeWorkingDirectoryPicker(null),
+            new FakeRunnerRemovalConfirmation(false));
+        await viewModel.LoadAsync();
+        viewModel.SelectedRunner!.DisplayName = "Unsaved name";
+
+        viewModel.RunnerOpacityPercent = 55;
+
+        Assert.True(viewModel.IsSettingsDirty);
+        Assert.Equal(0.55, viewModel.RunnerOpacity, 2);
+        Assert.Equal("55%", viewModel.RunnerOpacityDisplayText);
+        var savedConfig = await WaitForSavedConfigAsync(
+            configStore,
+            config => Math.Abs(config.RunnerOpacity - 0.55) < 0.001);
+        Assert.Equal(0.55, savedConfig.RunnerOpacity, 2);
+        Assert.Equal("Test app", savedConfig.Runners[0].DisplayName);
+    }
+
+    [Fact]
+    public async Task LoadAsync_ClampsRunnerOpacity()
+    {
+        using var directory = TempDirectory.Create();
+        var configStore = new RunnerConfigStore(Path.Combine(directory.Path, "settings.json"));
+        await configStore.SaveAsync(new RunnerConfig
+        {
+            RunnerOpacity = 0.01,
+            Runners = [CreateRunnerDefinition("Test app", directory.Path)]
+        });
+        var viewModel = new MainWindowViewModel(
+            configStore,
+            new RunnerFactory(),
+            new FakeWorkingDirectoryPicker(null),
+            new FakeRunnerRemovalConfirmation(false));
+
+        await viewModel.LoadAsync();
+
+        Assert.Equal(0.1, viewModel.RunnerOpacity);
+        Assert.Equal(10, viewModel.RunnerOpacityPercent);
+        Assert.Equal("10%", viewModel.RunnerOpacityDisplayText);
+    }
+
+    [Fact]
+    public async Task ToggleLogOrderCommand_TogglesSavesAndPreservesDirtyRunnerConfig()
+    {
+        using var directory = TempDirectory.Create();
+        var configStore = CreateConfigStore(directory.Path);
+        var viewModel = new MainWindowViewModel(
+            configStore,
+            new RunnerFactory(),
+            new FakeWorkingDirectoryPicker(null),
+            new FakeRunnerRemovalConfirmation(false));
+        await viewModel.LoadAsync();
+        viewModel.SelectedRunner!.DisplayName = "Unsaved name";
+
+        await viewModel.ToggleLogOrderCommand.ExecuteAsync(null);
+
+        Assert.False(viewModel.ShowNewestLogsFirst);
+        Assert.True(viewModel.IsSettingsDirty);
+        var savedConfig = await configStore.LoadAsync();
+        Assert.False(savedConfig.ShowNewestLogsFirst);
+        Assert.Equal("Test app", savedConfig.Runners[0].DisplayName);
+    }
+
+    [Fact]
     public async Task LoadAsync_LoadsWindowPlacement()
     {
         using var directory = TempDirectory.Create();
@@ -512,6 +647,40 @@ public sealed class MainWindowViewModelTests
         Assert.Equal(980, viewModel.SettingsWindowPlacement.Width);
         Assert.Equal(640, viewModel.SettingsWindowPlacement.Height);
         Assert.True(viewModel.SettingsWindowPlacement.IsMaximized);
+    }
+
+    [Fact]
+    public async Task LoadAsync_LoadsDetailsWindowPlacement()
+    {
+        using var directory = TempDirectory.Create();
+        var placement = new WindowPlacement
+        {
+            X = 420,
+            Y = 260,
+            Width = 1040,
+            Height = 700,
+            IsMaximized = true
+        };
+        var configStore = new RunnerConfigStore(Path.Combine(directory.Path, "settings.json"));
+        await configStore.SaveAsync(new RunnerConfig
+        {
+            DetailsWindowPlacement = placement,
+            Runners = [CreateRunnerDefinition("Test app", directory.Path)]
+        });
+        var viewModel = new MainWindowViewModel(
+            configStore,
+            new RunnerFactory(),
+            new FakeWorkingDirectoryPicker(null),
+            new FakeRunnerRemovalConfirmation(false));
+
+        await viewModel.LoadAsync();
+
+        Assert.NotNull(viewModel.DetailsWindowPlacement);
+        Assert.Equal(420, viewModel.DetailsWindowPlacement.X);
+        Assert.Equal(260, viewModel.DetailsWindowPlacement.Y);
+        Assert.Equal(1040, viewModel.DetailsWindowPlacement.Width);
+        Assert.Equal(700, viewModel.DetailsWindowPlacement.Height);
+        Assert.True(viewModel.DetailsWindowPlacement.IsMaximized);
     }
 
     [Fact]
@@ -582,6 +751,40 @@ public sealed class MainWindowViewModelTests
     }
 
     [Fact]
+    public async Task SaveDetailsWindowPlacementAsync_PersistsPlacementWithoutDroppingConfig()
+    {
+        using var directory = TempDirectory.Create();
+        var configStore = CreateConfigStore(directory.Path);
+        var viewModel = new MainWindowViewModel(
+            configStore,
+            new RunnerFactory(),
+            new FakeWorkingDirectoryPicker(null),
+            new FakeRunnerRemovalConfirmation(false));
+        await viewModel.LoadAsync();
+        viewModel.SelectedRunner!.DisplayName = "Unsaved name";
+
+        await viewModel.SaveDetailsWindowPlacementAsync(new WindowPlacement
+        {
+            X = 88,
+            Y = 112,
+            Width = 1120,
+            Height = 740,
+            IsMaximized = false
+        });
+
+        Assert.True(viewModel.IsSettingsDirty);
+        var savedConfig = await configStore.LoadAsync();
+        Assert.Single(savedConfig.Runners);
+        Assert.Equal("Test app", savedConfig.Runners[0].DisplayName);
+        Assert.NotNull(savedConfig.DetailsWindowPlacement);
+        Assert.Equal(88, savedConfig.DetailsWindowPlacement.X);
+        Assert.Equal(112, savedConfig.DetailsWindowPlacement.Y);
+        Assert.Equal(1120, savedConfig.DetailsWindowPlacement.Width);
+        Assert.Equal(740, savedConfig.DetailsWindowPlacement.Height);
+        Assert.False(savedConfig.DetailsWindowPlacement.IsMaximized);
+    }
+
+    [Fact]
     public async Task SaveConfigAsync_PreservesLoadedWindowPlacement()
     {
         using var directory = TempDirectory.Create();
@@ -649,6 +852,41 @@ public sealed class MainWindowViewModelTests
         Assert.Equal(940, savedConfig.SettingsWindowPlacement.Width);
         Assert.Equal(620, savedConfig.SettingsWindowPlacement.Height);
         Assert.True(savedConfig.SettingsWindowPlacement.IsMaximized);
+    }
+
+    [Fact]
+    public async Task SaveConfigAsync_PreservesLoadedDetailsWindowPlacement()
+    {
+        using var directory = TempDirectory.Create();
+        var configStore = new RunnerConfigStore(Path.Combine(directory.Path, "settings.json"));
+        await configStore.SaveAsync(new RunnerConfig
+        {
+            DetailsWindowPlacement = new WindowPlacement
+            {
+                X = 320,
+                Y = 240,
+                Width = 980,
+                Height = 660,
+                IsMaximized = true
+            },
+            Runners = [CreateRunnerDefinition("Test app", directory.Path)]
+        });
+        var viewModel = new MainWindowViewModel(
+            configStore,
+            new RunnerFactory(),
+            new FakeWorkingDirectoryPicker(null),
+            new FakeRunnerRemovalConfirmation(false));
+        await viewModel.LoadAsync();
+
+        await viewModel.ToggleAlwaysOnTopCommand.ExecuteAsync(null);
+
+        var savedConfig = await configStore.LoadAsync();
+        Assert.NotNull(savedConfig.DetailsWindowPlacement);
+        Assert.Equal(320, savedConfig.DetailsWindowPlacement.X);
+        Assert.Equal(240, savedConfig.DetailsWindowPlacement.Y);
+        Assert.Equal(980, savedConfig.DetailsWindowPlacement.Width);
+        Assert.Equal(660, savedConfig.DetailsWindowPlacement.Height);
+        Assert.True(savedConfig.DetailsWindowPlacement.IsMaximized);
     }
 
     [Fact]
@@ -1157,6 +1395,27 @@ public sealed class MainWindowViewModelTests
         };
     }
 
+    private static async Task<RunnerConfig> WaitForSavedConfigAsync(
+        RunnerConfigStore configStore,
+        Func<RunnerConfig, bool> predicate)
+    {
+        RunnerConfig config = new();
+
+        for (var attempt = 0; attempt < 20; attempt++)
+        {
+            config = await configStore.LoadAsync();
+
+            if (predicate(config))
+            {
+                return config;
+            }
+
+            await Task.Delay(50);
+        }
+
+        return config;
+    }
+
     private sealed class FakeWorkingDirectoryPicker : IWorkingDirectoryPicker
     {
         private readonly string? _selectedPath;
@@ -1258,6 +1517,12 @@ public sealed class MainWindowViewModelTests
         public int? ProcessId => Status == RunnerStatus.Running ? 123 : null;
 
         public RunnerFailureDetails? LastFailure => null;
+
+        public IReadOnlyList<string> LogLines => [];
+
+        public void ClearLogs()
+        {
+        }
 
         public int StopCount { get; private set; }
 
