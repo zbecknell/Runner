@@ -19,6 +19,7 @@ public sealed partial class RunnerViewModel : ViewModelBase, IAsyncDisposable
     private RunnerStatus _status;
     private int? _processId;
     private bool _isFailureDetailsVisible;
+    private DateTimeOffset? _lastFinishedAt;
 
     public RunnerViewModel(RunnerDefinition definition, IRunnerFactory runnerFactory)
     {
@@ -81,6 +82,13 @@ public sealed partial class RunnerViewModel : ViewModelBase, IAsyncDisposable
             OnPropertyChanged(nameof(PrimaryRunText));
             OnPropertyChanged(nameof(PrimaryRunIconValue));
             OnPropertyChanged(nameof(PrimaryRunToolTip));
+            OnPropertyChanged(nameof(CanStart));
+            OnPropertyChanged(nameof(CanRestart));
+            OnPropertyChanged(nameof(CanRunPrimary));
+            OnPropertyChanged(nameof(CanClean));
+            OnPropertyChanged(nameof(CanBuild));
+            ClearFinishedState();
+            OnDashboardStatusChanged();
         }
     }
 
@@ -173,6 +181,7 @@ public sealed partial class RunnerViewModel : ViewModelBase, IAsyncDisposable
                 OnPropertyChanged(nameof(StatusBorderColor));
                 OnPropertyChanged(nameof(StatusIconValue));
                 OnPropertyChanged(nameof(StatusIconAnimation));
+                OnDashboardStatusChanged();
                 OnPropertyChanged(nameof(PrimaryRunText));
                 OnPropertyChanged(nameof(PrimaryRunIconValue));
                 OnPropertyChanged(nameof(PrimaryRunIconAnimation));
@@ -181,6 +190,8 @@ public sealed partial class RunnerViewModel : ViewModelBase, IAsyncDisposable
                 OnPropertyChanged(nameof(CanStop));
                 OnPropertyChanged(nameof(CanRestart));
                 OnPropertyChanged(nameof(CanRunPrimary));
+                OnPropertyChanged(nameof(CanClean));
+                OnPropertyChanged(nameof(CanBuild));
                 OnPropertyChanged(nameof(CanEditType));
             }
         }
@@ -194,6 +205,18 @@ public sealed partial class RunnerViewModel : ViewModelBase, IAsyncDisposable
             if (SetProperty(ref _processId, value))
             {
                 OnPropertyChanged(nameof(ProcessText));
+            }
+        }
+    }
+
+    public DateTimeOffset? LastFinishedAt
+    {
+        get => _lastFinishedAt;
+        private set
+        {
+            if (SetProperty(ref _lastFinishedAt, value))
+            {
+                OnDashboardStatusChanged();
             }
         }
     }
@@ -240,38 +263,64 @@ public sealed partial class RunnerViewModel : ViewModelBase, IAsyncDisposable
         ? IconAnimation.Spin
         : IconAnimation.None;
 
+    public bool IsDashboardStatusVisible => !IsBuildOnly
+        || Status != RunnerStatus.Stopped
+        || LastFinishedAt is not null;
+
+    public string DashboardStatusText => IsBuildOnlyFinished
+        ? "Finished"
+        : StatusText;
+
+    public string? DashboardStatusToolTip => IsBuildOnlyFinished
+        ? $"Finished at {LastFinishedAt!.Value.LocalDateTime:yyyy-MM-dd HH:mm:ss}"
+        : null;
+
+    public IBrush DashboardStatusBackground => IsBuildOnlyFinished
+        ? ToBrush("#166534")
+        : StatusBackground;
+
+    public IBrush DashboardStatusForeground => IsBuildOnlyFinished
+        ? ToBrush("#ECFDF5")
+        : StatusForeground;
+
+    public IBrush DashboardStatusBorderBrush => IsBuildOnlyFinished
+        ? ToBrush("#22C55E")
+        : StatusBorderBrush;
+
+    public string DashboardStatusIconValue => IsBuildOnlyFinished
+        ? "fa-solid fa-circle-check"
+        : StatusIconValue;
+
+    public IconAnimation DashboardStatusIconAnimation => IsBuildOnlyFinished
+        ? IconAnimation.None
+        : StatusIconAnimation;
+
     public string PrimaryRunText => Status switch
     {
-        RunnerStatus.Running => "Restart",
-        RunnerStatus.Cleaning => "Cleaning",
-        RunnerStatus.Restoring => "Restoring",
-        RunnerStatus.Building => "Building",
-        RunnerStatus.Starting => "Starting",
+        RunnerStatus.Cleaning or RunnerStatus.Restoring or RunnerStatus.Building or RunnerStatus.Starting or RunnerStatus.Running => "Stop",
+        RunnerStatus.Stopping => "Stopping",
         _ when IsBuildOnly => "Build",
-        _ => "Start"
+        _ => "Run"
     };
 
     public string PrimaryRunIconValue => Status switch
     {
-        RunnerStatus.Running => "fa-solid fa-rotate-right",
-        RunnerStatus.Cleaning or RunnerStatus.Restoring or RunnerStatus.Building or RunnerStatus.Starting => "fa-solid fa-spinner",
+        RunnerStatus.Cleaning or RunnerStatus.Restoring or RunnerStatus.Building or RunnerStatus.Starting or RunnerStatus.Running => "fa-solid fa-stop",
+        RunnerStatus.Stopping => "fa-solid fa-spinner",
         _ when IsBuildOnly => "fa-solid fa-hammer",
         _ => "fa-solid fa-play"
     };
 
-    public IconAnimation PrimaryRunIconAnimation => IsSpinnerStatus
+    public IconAnimation PrimaryRunIconAnimation => Status == RunnerStatus.Stopping
         ? IconAnimation.Spin
         : IconAnimation.None;
 
     public string PrimaryRunToolTip => Status switch
     {
-        RunnerStatus.Running => "Restart",
-        RunnerStatus.Cleaning => "Cleaning",
-        RunnerStatus.Restoring => "Restoring",
-        RunnerStatus.Building => "Building",
-        RunnerStatus.Starting => "Starting",
+        RunnerStatus.Cleaning or RunnerStatus.Restoring or RunnerStatus.Building or RunnerStatus.Starting or RunnerStatus.Running => "Stop",
+        RunnerStatus.Stopping => "Stopping",
         _ when IsBuildOnly => "Build",
-        _ => "Start"
+        _ => "Run"
     };
 
     public IBrush StatusBackground => ToBrush(StatusBackgroundColor);
@@ -286,7 +335,7 @@ public sealed partial class RunnerViewModel : ViewModelBase, IAsyncDisposable
         ? $"{Type} runner"
         : DisplayName;
 
-    public bool CanStart => Status is RunnerStatus.Stopped or RunnerStatus.Failed;
+    public bool CanStart => !IsBuildOnly && Status is (RunnerStatus.Stopped or RunnerStatus.Failed);
 
     public bool CanStop => Status is RunnerStatus.Cleaning
         or RunnerStatus.Restoring
@@ -294,13 +343,21 @@ public sealed partial class RunnerViewModel : ViewModelBase, IAsyncDisposable
         or RunnerStatus.Starting
         or RunnerStatus.Running;
 
-    public bool CanRestart => Status is RunnerStatus.Running or RunnerStatus.Failed or RunnerStatus.Stopped;
+    public bool CanRestart => !IsBuildOnly && Status == RunnerStatus.Running;
 
-    public bool CanRunPrimary => Status is RunnerStatus.Running or RunnerStatus.Failed or RunnerStatus.Stopped;
+    public bool CanRunPrimary => CanStop || Status is RunnerStatus.Failed or RunnerStatus.Stopped;
+
+    public bool CanClean => Status is RunnerStatus.Failed or RunnerStatus.Stopped;
+
+    public bool CanBuild => Status is RunnerStatus.Failed or RunnerStatus.Stopped;
 
     public bool CanEditType => !CanStop;
 
     public bool IsBuildOnly => Type == RunnerType.DotNetProjectBuild;
+
+    private bool IsBuildOnlyFinished => IsBuildOnly
+        && Status == RunnerStatus.Stopped
+        && LastFinishedAt is not null;
 
     private bool IsSpinnerStatus => Status is RunnerStatus.Cleaning
         or RunnerStatus.Restoring
@@ -317,8 +374,40 @@ public sealed partial class RunnerViewModel : ViewModelBase, IAsyncDisposable
 
     public string FailureDetailsText => FormatFailureDetails(_runner.LastFailure);
 
+    public async Task CleanAsync(CancellationToken cancellationToken = default)
+    {
+        ClearFinishedState();
+
+        try
+        {
+            await _runner.CleanAsync(cancellationToken);
+            SetFinishedStateIfSuccessful();
+        }
+        finally
+        {
+            RefreshProcessState();
+        }
+    }
+
+    public async Task BuildAsync(CancellationToken cancellationToken = default)
+    {
+        ClearFinishedState();
+
+        try
+        {
+            await _runner.BuildAsync(cancellationToken);
+            SetFinishedStateIfSuccessful();
+        }
+        finally
+        {
+            RefreshProcessState();
+        }
+    }
+
     public async Task StartAsync(CancellationToken cancellationToken = default)
     {
+        ClearFinishedState();
+
         try
         {
             await _runner.StartAsync(cancellationToken);
@@ -331,6 +420,8 @@ public sealed partial class RunnerViewModel : ViewModelBase, IAsyncDisposable
 
     public async Task StopAsync(CancellationToken cancellationToken = default)
     {
+        ClearFinishedState();
+
         try
         {
             await _runner.StopAsync(cancellationToken);
@@ -343,6 +434,8 @@ public sealed partial class RunnerViewModel : ViewModelBase, IAsyncDisposable
 
     public async Task RestartAsync(CancellationToken cancellationToken = default)
     {
+        ClearFinishedState();
+
         try
         {
             await _runner.RestartAsync(cancellationToken);
@@ -475,6 +568,33 @@ public sealed partial class RunnerViewModel : ViewModelBase, IAsyncDisposable
 
         _ = oldRunner.DisposeAsync().AsTask();
         RefreshProcessState();
+    }
+
+    private void ClearFinishedState()
+    {
+        LastFinishedAt = null;
+    }
+
+    private void SetFinishedStateIfSuccessful()
+    {
+        if (IsBuildOnly
+            && _runner.Status == RunnerStatus.Stopped
+            && _runner.LastFailure is null)
+        {
+            LastFinishedAt = DateTimeOffset.Now;
+        }
+    }
+
+    private void OnDashboardStatusChanged()
+    {
+        OnPropertyChanged(nameof(IsDashboardStatusVisible));
+        OnPropertyChanged(nameof(DashboardStatusText));
+        OnPropertyChanged(nameof(DashboardStatusToolTip));
+        OnPropertyChanged(nameof(DashboardStatusBackground));
+        OnPropertyChanged(nameof(DashboardStatusForeground));
+        OnPropertyChanged(nameof(DashboardStatusBorderBrush));
+        OnPropertyChanged(nameof(DashboardStatusIconValue));
+        OnPropertyChanged(nameof(DashboardStatusIconAnimation));
     }
 
     private void RefreshFailureState()

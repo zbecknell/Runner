@@ -231,11 +231,15 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
 
     public bool CanRunSelected => SelectedRunner?.CanRunPrimary == true;
 
+    public bool CanCleanSelected => SelectedRunner?.CanClean == true;
+
+    public bool CanBuildSelected => SelectedRunner?.CanBuild == true;
+
     public bool CanApplyUpdate => IsUpdateAvailable && !IsUpdating;
 
     public bool IsUpdateActionVisible => IsUpdateAvailable || IsUpdating;
 
-    public double WindowMinWidth => 420;
+    public double WindowMinWidth => 200;
 
     public double WindowMinHeight => 112;
 
@@ -488,6 +492,18 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         await RunRunnerAsync(SelectedRunner);
     }
 
+    [RelayCommand(CanExecute = nameof(CanCleanSelected))]
+    private async Task CleanSelectedAsync()
+    {
+        await CleanRunnerAsync(SelectedRunner);
+    }
+
+    [RelayCommand(CanExecute = nameof(CanBuildSelected))]
+    private async Task BuildSelectedAsync()
+    {
+        await BuildRunnerAsync(SelectedRunner);
+    }
+
     [RelayCommand(CanExecute = nameof(HasSelectedRunner))]
     private async Task BrowseWorkingDirectoryAsync()
     {
@@ -696,6 +712,72 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         }
     }
 
+    [RelayCommand(CanExecute = nameof(CanCleanRunner))]
+    private async Task CleanRunnerAsync(RunnerViewModel? runner)
+    {
+        if (runner is null)
+        {
+            return;
+        }
+
+        SelectedRunner = runner;
+        var errors = RunnerDefinitionValidator.Validate(runner.Definition);
+
+        if (errors.Count > 0)
+        {
+            StatusMessage = string.Join(" ", errors);
+            return;
+        }
+
+        try
+        {
+            StatusMessage = $"Cleaning {runner.Header}...";
+            await runner.CleanAsync();
+            StatusMessage = $"Cleaned {runner.Header}.";
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Clean failed: {ex.Message}";
+        }
+        finally
+        {
+            RefreshCommandStates();
+        }
+    }
+
+    [RelayCommand(CanExecute = nameof(CanBuildRunner))]
+    private async Task BuildRunnerAsync(RunnerViewModel? runner)
+    {
+        if (runner is null)
+        {
+            return;
+        }
+
+        SelectedRunner = runner;
+        var errors = RunnerDefinitionValidator.Validate(runner.Definition);
+
+        if (errors.Count > 0)
+        {
+            StatusMessage = string.Join(" ", errors);
+            return;
+        }
+
+        try
+        {
+            StatusMessage = $"Building {runner.Header}...";
+            await runner.BuildAsync();
+            StatusMessage = $"Built {runner.Header}.";
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Build failed: {ex.Message}";
+        }
+        finally
+        {
+            RefreshCommandStates();
+        }
+    }
+
     [RelayCommand(CanExecute = nameof(CanRunRunnerPrimary))]
     private async Task RunRunnerAsync(RunnerViewModel? runner)
     {
@@ -704,9 +786,15 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
             return;
         }
 
-        if (runner.Status == RunnerStatus.Running)
+        if (runner.CanStop)
         {
-            await RestartRunnerAsync(runner);
+            await StopRunnerAsync(runner);
+            return;
+        }
+
+        if (runner.IsBuildOnly)
+        {
+            await BuildRunnerAsync(runner);
             return;
         }
 
@@ -835,10 +923,13 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
     {
         if (e.PropertyName is nameof(RunnerViewModel.Status)
             or nameof(RunnerViewModel.ProcessId)
+            or nameof(RunnerViewModel.Type)
             or nameof(RunnerViewModel.CanStart)
             or nameof(RunnerViewModel.CanStop)
             or nameof(RunnerViewModel.CanRestart)
-            or nameof(RunnerViewModel.CanRunPrimary))
+            or nameof(RunnerViewModel.CanRunPrimary)
+            or nameof(RunnerViewModel.CanClean)
+            or nameof(RunnerViewModel.CanBuild))
         {
             RefreshCommandStates();
         }
@@ -862,6 +953,8 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         OnPropertyChanged(nameof(CanStopSelected));
         OnPropertyChanged(nameof(CanRestartSelected));
         OnPropertyChanged(nameof(CanRunSelected));
+        OnPropertyChanged(nameof(CanCleanSelected));
+        OnPropertyChanged(nameof(CanBuildSelected));
 
         AddRunnerCommand.NotifyCanExecuteChanged();
         CloneSelectedCommand.NotifyCanExecuteChanged();
@@ -873,10 +966,14 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         StopSelectedCommand.NotifyCanExecuteChanged();
         RestartSelectedCommand.NotifyCanExecuteChanged();
         RunSelectedCommand.NotifyCanExecuteChanged();
+        CleanSelectedCommand.NotifyCanExecuteChanged();
+        BuildSelectedCommand.NotifyCanExecuteChanged();
         StartRunnerCommand.NotifyCanExecuteChanged();
         StopRunnerCommand.NotifyCanExecuteChanged();
         RestartRunnerCommand.NotifyCanExecuteChanged();
         RunRunnerCommand.NotifyCanExecuteChanged();
+        CleanRunnerCommand.NotifyCanExecuteChanged();
+        BuildRunnerCommand.NotifyCanExecuteChanged();
     }
 
     private static bool CanStartRunner(RunnerViewModel? runner)
@@ -897,6 +994,16 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
     private static bool CanRunRunnerPrimary(RunnerViewModel? runner)
     {
         return runner?.CanRunPrimary == true;
+    }
+
+    private static bool CanCleanRunner(RunnerViewModel? runner)
+    {
+        return runner?.CanClean == true;
+    }
+
+    private static bool CanBuildRunner(RunnerViewModel? runner)
+    {
+        return runner?.CanBuild == true;
     }
 
     private bool CanMoveRunnerUp(RunnerViewModel? runner)

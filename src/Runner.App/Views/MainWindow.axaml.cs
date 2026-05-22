@@ -4,6 +4,7 @@ using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.VisualTree;
+using System.Windows.Input;
 using Runner.App.ViewModels;
 using Runner.Core.Config;
 
@@ -11,6 +12,7 @@ namespace Runner.App.Views;
 
 public partial class MainWindow : Window
 {
+    private const double ResizeDragExclusionMargin = 8;
     private bool _closeAfterCleanup;
     private bool _isOpened;
     private bool _placementApplied;
@@ -29,6 +31,7 @@ public partial class MainWindow : Window
         Resized += (_, _) => CaptureNormalPlacement();
         DataContextChanged += (_, _) => SetViewModel(DataContext as MainWindowViewModel);
         AddHandler(PointerPressedEvent, OnDashboardPointerPressed, RoutingStrategies.Tunnel);
+        AddHandler(ContextRequestedEvent, OnRunnerContextRequested, RoutingStrategies.Bubble);
     }
 
     public bool IsShownFromTray => IsVisible && WindowState != WindowState.Minimized;
@@ -302,12 +305,27 @@ public partial class MainWindow : Window
 
         var point = e.GetCurrentPoint(this);
 
-        if (!point.Properties.IsLeftButtonPressed || IsInteractiveDragSource(e.Source))
+        if (!point.Properties.IsLeftButtonPressed
+            || IsResizeDragStart(point.Position)
+            || IsInteractiveDragSource(e.Source))
         {
             return;
         }
 
         BeginMoveDrag(e);
+    }
+
+    private bool IsResizeDragStart(Point position)
+    {
+        if (!CanResize || WindowState != WindowState.Normal)
+        {
+            return false;
+        }
+
+        return position.X <= ResizeDragExclusionMargin
+            || position.Y <= ResizeDragExclusionMargin
+            || position.X >= ClientSize.Width - ResizeDragExclusionMargin
+            || position.Y >= ClientSize.Height - ResizeDragExclusionMargin;
     }
 
     private static bool IsInteractiveDragSource(object? source)
@@ -326,6 +344,80 @@ public partial class MainWindow : Window
         }
 
         return false;
+    }
+
+    private void OnRunnerContextRequested(object? sender, ContextRequestedEventArgs e)
+    {
+        if (_viewModel is null || TryFindVisualAncestor<MenuItem>(e.Source) is not null)
+        {
+            return;
+        }
+
+        var listBoxItem = TryFindVisualAncestor<ListBoxItem>(e.Source);
+        if (listBoxItem?.DataContext is not RunnerViewModel runner)
+        {
+            return;
+        }
+
+        _viewModel.SelectedRunner = runner;
+        var menu = new ContextMenu
+        {
+            ItemsSource = CreateRunnerMenuItems(_viewModel, runner)
+        };
+
+        e.Handled = true;
+        menu.Open(listBoxItem);
+    }
+
+    private static Control[] CreateRunnerMenuItems(
+        MainWindowViewModel viewModel,
+        RunnerViewModel runner)
+    {
+        if (runner.IsBuildOnly)
+        {
+            return
+            [
+                CreateRunnerMenuItem("Clean", viewModel.CleanRunnerCommand, runner),
+                CreateRunnerMenuItem("Build", viewModel.BuildRunnerCommand, runner)
+            ];
+        }
+
+        return
+        [
+            CreateRunnerMenuItem("Run", viewModel.StartRunnerCommand, runner),
+            CreateRunnerMenuItem("Restart", viewModel.RestartRunnerCommand, runner),
+            CreateRunnerMenuItem("Stop", viewModel.StopRunnerCommand, runner),
+            new Separator(),
+            CreateRunnerMenuItem("Clean", viewModel.CleanRunnerCommand, runner),
+            CreateRunnerMenuItem("Build", viewModel.BuildRunnerCommand, runner)
+        ];
+    }
+
+    private static MenuItem CreateRunnerMenuItem(
+        string header,
+        ICommand command,
+        RunnerViewModel runner)
+    {
+        return new MenuItem
+        {
+            Header = header,
+            Command = command,
+            CommandParameter = runner
+        };
+    }
+
+    private static T? TryFindVisualAncestor<T>(object? source)
+        where T : Visual
+    {
+        for (var visual = source as Visual; visual is not null; visual = visual.GetVisualParent())
+        {
+            if (visual is T match)
+            {
+                return match;
+            }
+        }
+
+        return null;
     }
 
     private void SetViewModel(MainWindowViewModel? viewModel)

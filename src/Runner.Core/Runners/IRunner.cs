@@ -12,6 +12,10 @@ public interface IRunner : IAsyncDisposable
 
     RunnerFailureDetails? LastFailure { get; }
 
+    Task CleanAsync(CancellationToken cancellationToken = default);
+
+    Task BuildAsync(CancellationToken cancellationToken = default);
+
     Task StartAsync(CancellationToken cancellationToken = default);
 
     Task StopAsync(CancellationToken cancellationToken = default);

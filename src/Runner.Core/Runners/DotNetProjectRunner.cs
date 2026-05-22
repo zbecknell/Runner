@@ -56,20 +56,86 @@ public sealed class DotNetProjectRunner : IRunner
         }
     }
 
+    public async Task CleanAsync(CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (!TryBeginOperation())
+        {
+            return;
+        }
+
+        try
+        {
+            ResetRunDiagnostics();
+            RunnerDefinitionValidator.ThrowIfInvalid(Definition);
+        }
+        catch (Exception ex)
+        {
+            SetFailure("Clean failed.", exitCode: null, exception: ex);
+            SetStatus(RunnerStatus.Failed);
+            throw;
+        }
+
+        if (await RunPhaseAsync(
+            RunnerStatus.Cleaning,
+            "Clean failed.",
+            CreateCleanStartInfo(Definition),
+            cancellationToken))
+        {
+            ClearFailure();
+            SetStatus(RunnerStatus.Stopped);
+        }
+    }
+
+    public async Task BuildAsync(CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (!TryBeginOperation())
+        {
+            return;
+        }
+
+        try
+        {
+            ResetRunDiagnostics();
+            RunnerDefinitionValidator.ThrowIfInvalid(Definition);
+        }
+        catch (Exception ex)
+        {
+            SetFailure("Build failed.", exitCode: null, exception: ex);
+            SetStatus(RunnerStatus.Failed);
+            throw;
+        }
+
+        if (!await RunPhaseAsync(
+            RunnerStatus.Restoring,
+            "Restore failed.",
+            CreateRestoreStartInfo(Definition),
+            cancellationToken))
+        {
+            return;
+        }
+
+        if (await RunPhaseAsync(
+            RunnerStatus.Building,
+            "Build failed.",
+            CreateBuildStartInfo(Definition),
+            cancellationToken))
+        {
+            ClearFailure();
+            SetStatus(RunnerStatus.Stopped);
+        }
+    }
+
     public async Task StartAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        lock (_sync)
+        if (!TryBeginOperation())
         {
-            if (_status is RunnerStatus.Cleaning
-                or RunnerStatus.Restoring
-                or RunnerStatus.Building
-                or RunnerStatus.Starting
-                or RunnerStatus.Running)
-            {
-                return;
-            }
+            return;
         }
 
         try
@@ -258,6 +324,24 @@ public sealed class DotNetProjectRunner : IRunner
             _process?.Dispose();
             _process = null;
         }
+    }
+
+    private bool TryBeginOperation()
+    {
+        lock (_sync)
+        {
+            if (_status is RunnerStatus.Cleaning
+                or RunnerStatus.Restoring
+                or RunnerStatus.Building
+                or RunnerStatus.Starting
+                or RunnerStatus.Running
+                or RunnerStatus.Stopping)
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private async Task<bool> RunPhaseAsync(

@@ -17,7 +17,7 @@ public sealed class MainWindowViewModelTests
             new FakeWorkingDirectoryPicker(null),
             new FakeRunnerRemovalConfirmation(false));
 
-        Assert.Equal(420, viewModel.WindowMinWidth);
+        Assert.Equal(200, viewModel.WindowMinWidth);
         Assert.Equal(112, viewModel.WindowMinHeight);
         Assert.False(viewModel.IsSettingsDirty);
     }
@@ -365,9 +365,12 @@ public sealed class MainWindowViewModelTests
 
         await viewModel.RunRunnerCommand.ExecuteAsync(viewModel.Runners[0]);
 
-        Assert.Equal(1, factory.Created[0].StartCount);
+        Assert.Equal(1, factory.Created[0].BuildCount);
+        Assert.Equal(0, factory.Created[0].StartCount);
         Assert.Equal(0, factory.Created[0].RestartCount);
         Assert.Equal("Built Build runner.", viewModel.StatusMessage);
+        Assert.NotNull(viewModel.Runners[0].LastFinishedAt);
+        Assert.Equal("Finished", viewModel.Runners[0].DashboardStatusText);
     }
 
     [Fact]
@@ -676,7 +679,7 @@ public sealed class MainWindowViewModelTests
     }
 
     [Fact]
-    public async Task RunRunnerCommand_WhenRunnerIsRunning_RestartsPassedRunner()
+    public async Task RunRunnerCommand_WhenRunnerIsRunning_StopsPassedRunner()
     {
         using var directory = TempDirectory.Create();
         var configStore = CreateConfigStore(
@@ -693,8 +696,8 @@ public sealed class MainWindowViewModelTests
 
         await viewModel.RunRunnerCommand.ExecuteAsync(viewModel.Runners[1]);
 
-        Assert.Equal(0, factory.Created[0].RestartCount);
-        Assert.Equal(1, factory.Created[1].RestartCount);
+        Assert.Equal(0, factory.Created[0].StopCount);
+        Assert.Equal(1, factory.Created[1].StopCount);
         Assert.Same(viewModel.Runners[1], viewModel.SelectedRunner);
     }
 
@@ -729,7 +732,7 @@ public sealed class MainWindowViewModelTests
             directory.Path,
             CreateRunnerDefinition("First runner", directory.Path),
             CreateRunnerDefinition("Second runner", directory.Path));
-        var factory = new RecordingRunnerFactory(RunnerStatus.Stopped);
+        var factory = new RecordingRunnerFactory(RunnerStatus.Running);
         var viewModel = new MainWindowViewModel(
             configStore,
             factory,
@@ -742,6 +745,98 @@ public sealed class MainWindowViewModelTests
         Assert.Equal(0, factory.Created[0].RestartCount);
         Assert.Equal(1, factory.Created[1].RestartCount);
         Assert.Same(viewModel.Runners[1], viewModel.SelectedRunner);
+    }
+
+    [Fact]
+    public async Task CleanRunnerCommand_OperatesOnPassedRunnerInsteadOfSelectedRunner()
+    {
+        using var directory = TempDirectory.Create();
+        var configStore = CreateConfigStore(
+            directory.Path,
+            CreateRunnerDefinition("First runner", directory.Path),
+            CreateRunnerDefinition("Second runner", directory.Path));
+        var factory = new RecordingRunnerFactory(RunnerStatus.Stopped);
+        var viewModel = new MainWindowViewModel(
+            configStore,
+            factory,
+            new FakeWorkingDirectoryPicker(null),
+            new FakeRunnerRemovalConfirmation(false));
+        await viewModel.LoadAsync();
+
+        await viewModel.CleanRunnerCommand.ExecuteAsync(viewModel.Runners[1]);
+
+        Assert.Equal(0, factory.Created[0].CleanCount);
+        Assert.Equal(1, factory.Created[1].CleanCount);
+        Assert.Same(viewModel.Runners[1], viewModel.SelectedRunner);
+        Assert.Equal("Cleaned Second runner.", viewModel.StatusMessage);
+        Assert.Null(viewModel.Runners[1].LastFinishedAt);
+    }
+
+    [Fact]
+    public async Task BuildRunnerCommand_OperatesOnPassedRunnerInsteadOfSelectedRunner()
+    {
+        using var directory = TempDirectory.Create();
+        var configStore = CreateConfigStore(
+            directory.Path,
+            CreateRunnerDefinition("First runner", directory.Path),
+            CreateRunnerDefinition("Second runner", directory.Path));
+        var factory = new RecordingRunnerFactory(RunnerStatus.Stopped);
+        var viewModel = new MainWindowViewModel(
+            configStore,
+            factory,
+            new FakeWorkingDirectoryPicker(null),
+            new FakeRunnerRemovalConfirmation(false));
+        await viewModel.LoadAsync();
+
+        await viewModel.BuildRunnerCommand.ExecuteAsync(viewModel.Runners[1]);
+
+        Assert.Equal(0, factory.Created[0].BuildCount);
+        Assert.Equal(1, factory.Created[1].BuildCount);
+        Assert.Same(viewModel.Runners[1], viewModel.SelectedRunner);
+        Assert.Equal("Built Second runner.", viewModel.StatusMessage);
+        Assert.Null(viewModel.Runners[1].LastFinishedAt);
+    }
+
+    [Fact]
+    public async Task BuildRunnerCommand_ForBuildOnlyRunner_SetsFinishedState()
+    {
+        using var directory = TempDirectory.Create();
+        var definition = CreateRunnerDefinition("Build runner", directory.Path);
+        definition.Type = RunnerType.DotNetProjectBuild;
+        var configStore = CreateConfigStore(directory.Path, definition);
+        var factory = new RecordingRunnerFactory(RunnerStatus.Stopped);
+        var viewModel = new MainWindowViewModel(
+            configStore,
+            factory,
+            new FakeWorkingDirectoryPicker(null),
+            new FakeRunnerRemovalConfirmation(false));
+        await viewModel.LoadAsync();
+
+        await viewModel.BuildRunnerCommand.ExecuteAsync(viewModel.Runners[0]);
+
+        Assert.NotNull(viewModel.Runners[0].LastFinishedAt);
+        Assert.Equal("Finished", viewModel.Runners[0].DashboardStatusText);
+    }
+
+    [Fact]
+    public async Task CleanRunnerCommand_ForBuildOnlyRunner_SetsFinishedState()
+    {
+        using var directory = TempDirectory.Create();
+        var definition = CreateRunnerDefinition("Build runner", directory.Path);
+        definition.Type = RunnerType.DotNetProjectBuild;
+        var configStore = CreateConfigStore(directory.Path, definition);
+        var factory = new RecordingRunnerFactory(RunnerStatus.Stopped);
+        var viewModel = new MainWindowViewModel(
+            configStore,
+            factory,
+            new FakeWorkingDirectoryPicker(null),
+            new FakeRunnerRemovalConfirmation(false));
+        await viewModel.LoadAsync();
+
+        await viewModel.CleanRunnerCommand.ExecuteAsync(viewModel.Runners[0]);
+
+        Assert.NotNull(viewModel.Runners[0].LastFinishedAt);
+        Assert.Equal("Finished", viewModel.Runners[0].DashboardStatusText);
     }
 
     [Fact]
@@ -784,8 +879,8 @@ public sealed class MainWindowViewModelTests
 
         await viewModel.RunSelectedCommand.ExecuteAsync(null);
 
-        Assert.Equal(1, factory.Created[0].RestartCount);
-        Assert.Equal(0, factory.Created[1].RestartCount);
+        Assert.Equal(1, factory.Created[0].StopCount);
+        Assert.Equal(0, factory.Created[1].StopCount);
     }
 
     [Fact]
@@ -1063,11 +1158,31 @@ public sealed class MainWindowViewModelTests
 
         public int StopCount { get; private set; }
 
+        public int CleanCount { get; private set; }
+
+        public int BuildCount { get; private set; }
+
         public int StartCount { get; private set; }
 
         public int RestartCount { get; private set; }
 
         public int DisposeCount { get; private set; }
+
+        public Task CleanAsync(CancellationToken cancellationToken = default)
+        {
+            CleanCount++;
+            Status = RunnerStatus.Stopped;
+            StatusChanged?.Invoke(this, Status);
+            return Task.CompletedTask;
+        }
+
+        public Task BuildAsync(CancellationToken cancellationToken = default)
+        {
+            BuildCount++;
+            Status = RunnerStatus.Stopped;
+            StatusChanged?.Invoke(this, Status);
+            return Task.CompletedTask;
+        }
 
         public Task StartAsync(CancellationToken cancellationToken = default)
         {

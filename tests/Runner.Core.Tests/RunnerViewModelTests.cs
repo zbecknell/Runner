@@ -33,14 +33,14 @@ public sealed class RunnerViewModelTests
     }
 
     [Theory]
-    [InlineData(RunnerStatus.Running, "Restart", "fa-solid fa-rotate-right", IconAnimation.None, "Restart", true)]
-    [InlineData(RunnerStatus.Failed, "Start", "fa-solid fa-play", IconAnimation.None, "Start", true)]
-    [InlineData(RunnerStatus.Stopped, "Start", "fa-solid fa-play", IconAnimation.None, "Start", true)]
-    [InlineData(RunnerStatus.Cleaning, "Cleaning", "fa-solid fa-spinner", IconAnimation.Spin, "Cleaning", false)]
-    [InlineData(RunnerStatus.Restoring, "Restoring", "fa-solid fa-spinner", IconAnimation.Spin, "Restoring", false)]
-    [InlineData(RunnerStatus.Building, "Building", "fa-solid fa-spinner", IconAnimation.Spin, "Building", false)]
-    [InlineData(RunnerStatus.Starting, "Starting", "fa-solid fa-spinner", IconAnimation.Spin, "Starting", false)]
-    [InlineData(RunnerStatus.Stopping, "Start", "fa-solid fa-play", IconAnimation.None, "Start", false)]
+    [InlineData(RunnerStatus.Running, "Stop", "fa-solid fa-stop", IconAnimation.None, "Stop", true)]
+    [InlineData(RunnerStatus.Failed, "Run", "fa-solid fa-play", IconAnimation.None, "Run", true)]
+    [InlineData(RunnerStatus.Stopped, "Run", "fa-solid fa-play", IconAnimation.None, "Run", true)]
+    [InlineData(RunnerStatus.Cleaning, "Stop", "fa-solid fa-stop", IconAnimation.None, "Stop", true)]
+    [InlineData(RunnerStatus.Restoring, "Stop", "fa-solid fa-stop", IconAnimation.None, "Stop", true)]
+    [InlineData(RunnerStatus.Building, "Stop", "fa-solid fa-stop", IconAnimation.None, "Stop", true)]
+    [InlineData(RunnerStatus.Starting, "Stop", "fa-solid fa-stop", IconAnimation.None, "Stop", true)]
+    [InlineData(RunnerStatus.Stopping, "Stopping", "fa-solid fa-spinner", IconAnimation.Spin, "Stopping", false)]
     public void PrimaryRunProperties_MapStatusToExpectedAction(
         RunnerStatus status,
         string expectedText,
@@ -87,6 +87,91 @@ public sealed class RunnerViewModelTests
         var viewModel = CreateViewModel(new FakeRunner(status));
 
         Assert.Equal(expectedCanStop, viewModel.CanStop);
+    }
+
+    [Theory]
+    [InlineData(RunnerStatus.Stopped, RunnerType.DotNetProject, true, false, true, true)]
+    [InlineData(RunnerStatus.Failed, RunnerType.DotNetProject, true, false, true, true)]
+    [InlineData(RunnerStatus.Running, RunnerType.DotNetProject, false, true, false, false)]
+    [InlineData(RunnerStatus.Stopped, RunnerType.DotNetProjectBuild, false, false, true, true)]
+    [InlineData(RunnerStatus.Running, RunnerType.DotNetProjectBuild, false, false, false, false)]
+    [InlineData(RunnerStatus.Stopping, RunnerType.DotNetProject, false, false, false, false)]
+    public void ContextActionProperties_MapTypeAndStatusToExpectedAvailability(
+        RunnerStatus status,
+        RunnerType type,
+        bool expectedCanStart,
+        bool expectedCanRestart,
+        bool expectedCanClean,
+        bool expectedCanBuild)
+    {
+        var viewModel = CreateViewModel(new FakeRunner(status, type: type));
+
+        Assert.Equal(expectedCanStart, viewModel.CanStart);
+        Assert.Equal(expectedCanRestart, viewModel.CanRestart);
+        Assert.Equal(expectedCanClean, viewModel.CanClean);
+        Assert.Equal(expectedCanBuild, viewModel.CanBuild);
+    }
+
+    [Fact]
+    public void DashboardStatus_ForIdleBuildOnlyProject_HidesStoppedPill()
+    {
+        var viewModel = CreateViewModel(new FakeRunner(RunnerStatus.Stopped, type: RunnerType.DotNetProjectBuild));
+
+        Assert.False(viewModel.IsDashboardStatusVisible);
+        Assert.Equal("Stopped", viewModel.DashboardStatusText);
+        Assert.Null(viewModel.DashboardStatusToolTip);
+    }
+
+    [Theory]
+    [InlineData(RunnerStatus.Building, "Building")]
+    [InlineData(RunnerStatus.Cleaning, "Cleaning")]
+    [InlineData(RunnerStatus.Failed, "Failed")]
+    public void DashboardStatus_ForActiveOrFailedBuildOnlyProject_ShowsStatusPill(
+        RunnerStatus status,
+        string expectedText)
+    {
+        var viewModel = CreateViewModel(new FakeRunner(status, type: RunnerType.DotNetProjectBuild));
+
+        Assert.True(viewModel.IsDashboardStatusVisible);
+        Assert.Equal(expectedText, viewModel.DashboardStatusText);
+        Assert.Null(viewModel.DashboardStatusToolTip);
+    }
+
+    [Fact]
+    public async Task DashboardStatus_ForSuccessfulBuildOnlyBuild_ShowsFinishedPill()
+    {
+        var viewModel = CreateViewModel(new FakeRunner(RunnerStatus.Stopped, type: RunnerType.DotNetProjectBuild));
+
+        await viewModel.BuildAsync();
+
+        Assert.NotNull(viewModel.LastFinishedAt);
+        Assert.True(viewModel.IsDashboardStatusVisible);
+        Assert.Equal("Finished", viewModel.DashboardStatusText);
+        Assert.StartsWith("Finished at ", viewModel.DashboardStatusToolTip);
+        Assert.Equal("fa-solid fa-circle-check", viewModel.DashboardStatusIconValue);
+    }
+
+    [Fact]
+    public async Task DashboardStatus_ForSuccessfulBuildOnlyClean_ShowsFinishedPill()
+    {
+        var viewModel = CreateViewModel(new FakeRunner(RunnerStatus.Stopped, type: RunnerType.DotNetProjectBuild));
+
+        await viewModel.CleanAsync();
+
+        Assert.NotNull(viewModel.LastFinishedAt);
+        Assert.True(viewModel.IsDashboardStatusVisible);
+        Assert.Equal("Finished", viewModel.DashboardStatusText);
+    }
+
+    [Fact]
+    public async Task DashboardStatus_WhenTypeChanges_ClearsPreviousFinishedPill()
+    {
+        var viewModel = CreateViewModel(new FakeRunner(RunnerStatus.Stopped, type: RunnerType.DotNetProjectBuild));
+        await viewModel.BuildAsync();
+
+        viewModel.Type = RunnerType.DotNetProject;
+
+        Assert.Null(viewModel.LastFinishedAt);
     }
 
     [Fact]
@@ -207,6 +292,22 @@ public sealed class RunnerViewModelTests
 
         public RunnerFailureDetails? LastFailure { get; private set; }
 
+        public Task CleanAsync(CancellationToken cancellationToken = default)
+        {
+            Status = RunnerStatus.Stopped;
+            LastFailure = null;
+            StatusChanged?.Invoke(this, Status);
+            return Task.CompletedTask;
+        }
+
+        public Task BuildAsync(CancellationToken cancellationToken = default)
+        {
+            Status = RunnerStatus.Stopped;
+            LastFailure = null;
+            StatusChanged?.Invoke(this, Status);
+            return Task.CompletedTask;
+        }
+
         public Task StartAsync(CancellationToken cancellationToken = default)
         {
             Status = RunnerStatus.Running;
@@ -262,6 +363,20 @@ public sealed class RunnerViewModelTests
         public int? ProcessId => null;
 
         public RunnerFailureDetails? LastFailure => null;
+
+        public Task CleanAsync(CancellationToken cancellationToken = default)
+        {
+            Status = RunnerStatus.Stopped;
+            StatusChanged?.Invoke(this, Status);
+            return Task.CompletedTask;
+        }
+
+        public Task BuildAsync(CancellationToken cancellationToken = default)
+        {
+            Status = RunnerStatus.Stopped;
+            StatusChanged?.Invoke(this, Status);
+            return Task.CompletedTask;
+        }
 
         public int StartCount { get; private set; }
 

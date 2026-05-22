@@ -55,11 +55,12 @@
                     <DataTemplate DataType="vm:RunnerViewModel"
                                   x:CompileBindings="False">
                         <Border Padding="4,2"
-                                MinHeight="34">
+                                MinHeight="34"
+                                Background="Transparent">
                             <Grid RowDefinitions="Auto,Auto"
                                   RowSpacing="3">
                                 <Grid Grid.Row="0"
-                                      ColumnDefinitions="*,Auto,Auto,Auto,Auto"
+                                      ColumnDefinitions="*,Auto,Auto,Auto"
                                       ColumnSpacing="6"
                                       VerticalAlignment="Center">
                                     <Grid Grid.Column="0"
@@ -82,23 +83,28 @@
                                     <Border Grid.Column="1"
                                             Padding="6,2"
                                             CornerRadius="4"
-                                            Background="{Binding StatusBackground}"
-                                            BorderBrush="{Binding StatusBorderBrush}"
+                                            Background="{Binding DashboardStatusBackground}"
+                                            BorderBrush="{Binding DashboardStatusBorderBrush}"
                                             BorderThickness="1"
-                                            VerticalAlignment="Center">
-                                        <Grid ColumnDefinitions="Auto,Auto"
+                                            MaxWidth="120"
+                                            HorizontalAlignment="Left"
+                                            VerticalAlignment="Center"
+                                            IsVisible="{Binding IsDashboardStatusVisible}"
+                                            ToolTip.Tip="{Binding DashboardStatusToolTip}">
+                                        <Grid ColumnDefinitions="Auto,*"
                                               ColumnSpacing="5">
                                             <i:Icon Grid.Column="0"
-                                                    Value="{Binding StatusIconValue}"
-                                                    Animation="{Binding StatusIconAnimation}"
-                                                    Foreground="{Binding StatusForeground}"
+                                                    Value="{Binding DashboardStatusIconValue}"
+                                                    Animation="{Binding DashboardStatusIconAnimation}"
+                                                    Foreground="{Binding DashboardStatusForeground}"
                                                     FontSize="9"
                                                     VerticalAlignment="Center" />
                                             <TextBlock Grid.Column="1"
-                                                       Text="{Binding StatusText}"
-                                                       Foreground="{Binding StatusForeground}"
+                                                       Text="{Binding DashboardStatusText}"
+                                                       Foreground="{Binding DashboardStatusForeground}"
                                                        FontSize="11"
-                                                       FontWeight="SemiBold" />
+                                                       FontWeight="SemiBold"
+                                                       TextTrimming="CharacterEllipsis" />
                                         </Grid>
                                     </Border>
 
@@ -119,18 +125,6 @@
                                             Width="30"
                                             Height="30"
                                             Padding="0"
-                                            Command="{Binding DataContext.StopRunnerCommand, RelativeSource={RelativeSource AncestorType=Window}}"
-                                            CommandParameter="{Binding}"
-                                            ToolTip.Tip="Stop">
-                                        <i:Icon Value="fa-solid fa-stop"
-                                                FontSize="12"
-                                                HorizontalAlignment="Center"
-                                                VerticalAlignment="Center" />
-                                    </Button>
-                                    <Button Grid.Column="4"
-                                            Width="30"
-                                            Height="30"
-                                            Padding="0"
                                             Command="{Binding ShowFailureDetailsCommand}"
                                             IsVisible="{Binding HasFailureDetails}"
                                             ToolTip.Tip="Failure details">
@@ -143,6 +137,7 @@
 
                                 <Border Grid.Row="1"
                                         IsVisible="{Binding IsFailureDetailsVisible}"
+                                        Margin="0,4,0,0"
                                         Padding="8"
                                         CornerRadius="5"
                                         Background="#2A1111"
