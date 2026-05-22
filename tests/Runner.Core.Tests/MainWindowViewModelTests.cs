@@ -481,6 +481,40 @@ public sealed class MainWindowViewModelTests
     }
 
     [Fact]
+    public async Task LoadAsync_LoadsSettingsWindowPlacement()
+    {
+        using var directory = TempDirectory.Create();
+        var placement = new WindowPlacement
+        {
+            X = 360,
+            Y = 220,
+            Width = 980,
+            Height = 640,
+            IsMaximized = true
+        };
+        var configStore = new RunnerConfigStore(Path.Combine(directory.Path, "settings.json"));
+        await configStore.SaveAsync(new RunnerConfig
+        {
+            SettingsWindowPlacement = placement,
+            Runners = [CreateRunnerDefinition("Test app", directory.Path)]
+        });
+        var viewModel = new MainWindowViewModel(
+            configStore,
+            new RunnerFactory(),
+            new FakeWorkingDirectoryPicker(null),
+            new FakeRunnerRemovalConfirmation(false));
+
+        await viewModel.LoadAsync();
+
+        Assert.NotNull(viewModel.SettingsWindowPlacement);
+        Assert.Equal(360, viewModel.SettingsWindowPlacement.X);
+        Assert.Equal(220, viewModel.SettingsWindowPlacement.Y);
+        Assert.Equal(980, viewModel.SettingsWindowPlacement.Width);
+        Assert.Equal(640, viewModel.SettingsWindowPlacement.Height);
+        Assert.True(viewModel.SettingsWindowPlacement.IsMaximized);
+    }
+
+    [Fact]
     public async Task SaveWindowPlacementAsync_PersistsPlacementWithoutDroppingConfig()
     {
         using var directory = TempDirectory.Create();
@@ -511,6 +545,40 @@ public sealed class MainWindowViewModelTests
         Assert.Equal(1180, savedConfig.WindowPlacement.Width);
         Assert.Equal(840, savedConfig.WindowPlacement.Height);
         Assert.False(savedConfig.WindowPlacement.IsMaximized);
+    }
+
+    [Fact]
+    public async Task SaveSettingsWindowPlacementAsync_PersistsPlacementWithoutDroppingConfig()
+    {
+        using var directory = TempDirectory.Create();
+        var configStore = CreateConfigStore(directory.Path);
+        var viewModel = new MainWindowViewModel(
+            configStore,
+            new RunnerFactory(),
+            new FakeWorkingDirectoryPicker(null),
+            new FakeRunnerRemovalConfirmation(false));
+        await viewModel.LoadAsync();
+        viewModel.SelectedRunner!.DisplayName = "Unsaved name";
+
+        await viewModel.SaveSettingsWindowPlacementAsync(new WindowPlacement
+        {
+            X = 72,
+            Y = 96,
+            Width = 1020,
+            Height = 680,
+            IsMaximized = false
+        });
+
+        Assert.True(viewModel.IsSettingsDirty);
+        var savedConfig = await configStore.LoadAsync();
+        Assert.Single(savedConfig.Runners);
+        Assert.Equal("Test app", savedConfig.Runners[0].DisplayName);
+        Assert.NotNull(savedConfig.SettingsWindowPlacement);
+        Assert.Equal(72, savedConfig.SettingsWindowPlacement.X);
+        Assert.Equal(96, savedConfig.SettingsWindowPlacement.Y);
+        Assert.Equal(1020, savedConfig.SettingsWindowPlacement.Width);
+        Assert.Equal(680, savedConfig.SettingsWindowPlacement.Height);
+        Assert.False(savedConfig.SettingsWindowPlacement.IsMaximized);
     }
 
     [Fact]
@@ -546,6 +614,41 @@ public sealed class MainWindowViewModelTests
         Assert.Equal(1220, savedConfig.WindowPlacement.Width);
         Assert.Equal(780, savedConfig.WindowPlacement.Height);
         Assert.True(savedConfig.WindowPlacement.IsMaximized);
+    }
+
+    [Fact]
+    public async Task SaveConfigAsync_PreservesLoadedSettingsWindowPlacement()
+    {
+        using var directory = TempDirectory.Create();
+        var configStore = new RunnerConfigStore(Path.Combine(directory.Path, "settings.json"));
+        await configStore.SaveAsync(new RunnerConfig
+        {
+            SettingsWindowPlacement = new WindowPlacement
+            {
+                X = 260,
+                Y = 180,
+                Width = 940,
+                Height = 620,
+                IsMaximized = true
+            },
+            Runners = [CreateRunnerDefinition("Test app", directory.Path)]
+        });
+        var viewModel = new MainWindowViewModel(
+            configStore,
+            new RunnerFactory(),
+            new FakeWorkingDirectoryPicker(null),
+            new FakeRunnerRemovalConfirmation(false));
+        await viewModel.LoadAsync();
+
+        await viewModel.ToggleAlwaysOnTopCommand.ExecuteAsync(null);
+
+        var savedConfig = await configStore.LoadAsync();
+        Assert.NotNull(savedConfig.SettingsWindowPlacement);
+        Assert.Equal(260, savedConfig.SettingsWindowPlacement.X);
+        Assert.Equal(180, savedConfig.SettingsWindowPlacement.Y);
+        Assert.Equal(940, savedConfig.SettingsWindowPlacement.Width);
+        Assert.Equal(620, savedConfig.SettingsWindowPlacement.Height);
+        Assert.True(savedConfig.SettingsWindowPlacement.IsMaximized);
     }
 
     [Fact]

@@ -54,8 +54,20 @@ public partial class MainWindow : Window
             DataContext = _viewModel
         };
         _settingsWindow.Closed += (_, _) => _settingsWindow = null;
+        _settingsWindow.ApplyWindowPlacement(_viewModel.SettingsWindowPlacement);
         _settingsWindow.Show(this);
         _settingsWindow.Activate();
+    }
+
+    private void ToggleSettingsWindow()
+    {
+        if (_settingsWindow is { IsVisible: true })
+        {
+            _settingsWindow.Close();
+            return;
+        }
+
+        OpenSettingsWindow();
     }
 
     public void ApplyWindowPlacement(WindowPlacement? placement)
@@ -438,6 +450,11 @@ public partial class MainWindow : Window
     private void OnSettingsOpenRequested(object? sender, EventArgs e)
     {
         OpenSettingsWindow();
+    }
+
+    private void OnSettingsButtonClick(object? sender, RoutedEventArgs e)
+    {
+        ToggleSettingsWindow();
     }
 
     private void OnTrayVisibilityChanged()

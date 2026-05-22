@@ -197,27 +197,27 @@
                        VerticalAlignment="Center" />
             <StackPanel Grid.Column="1"
                         Orientation="Horizontal"
-                        Spacing="6"
+                        Spacing="4"
                         VerticalAlignment="Center">
-                <Button Width="30"
-                        Height="30"
+                <Button Width="20"
+                        Height="20"
                         Padding="0"
                         Background="{Binding AlwaysOnTopButtonBackground}"
                         Command="{Binding ToggleAlwaysOnTopCommand}"
                         ToolTip.Tip="{Binding AlwaysOnTopToolTip}">
                     <i:Icon Value="fa-solid fa-thumbtack"
                             Foreground="{Binding AlwaysOnTopIconForeground}"
-                            FontSize="12"
+                            FontSize="10"
                             HorizontalAlignment="Center"
                             VerticalAlignment="Center" />
                 </Button>
-                <Button Width="30"
-                        Height="30"
+                <Button Width="20"
+                        Height="20"
                         Padding="0"
-                        Command="{Binding OpenSettingsCommand}"
-                        ToolTip.Tip="Edit runners">
-                    <i:Icon Value="fa-solid fa-pen"
-                            FontSize="12"
+                        Click="OnSettingsButtonClick"
+                        ToolTip.Tip="Settings">
+                    <i:Icon Value="fa-solid fa-gear"
+                            FontSize="10"
                             HorizontalAlignment="Center"
                             VerticalAlignment="Center" />
                 </Button>

@@ -23,6 +23,14 @@ public sealed class RunnerConfigStoreTests
                 Height = 900,
                 IsMaximized = true
             },
+            SettingsWindowPlacement = new WindowPlacement
+            {
+                X = 240,
+                Y = 160,
+                Width = 1000,
+                Height = 720,
+                IsMaximized = false
+            },
             Runners =
             [
                 new RunnerDefinition
@@ -51,6 +59,12 @@ public sealed class RunnerConfigStoreTests
         Assert.Equal(1440, loaded.WindowPlacement.Width);
         Assert.Equal(900, loaded.WindowPlacement.Height);
         Assert.True(loaded.WindowPlacement.IsMaximized);
+        Assert.NotNull(loaded.SettingsWindowPlacement);
+        Assert.Equal(240, loaded.SettingsWindowPlacement.X);
+        Assert.Equal(160, loaded.SettingsWindowPlacement.Y);
+        Assert.Equal(1000, loaded.SettingsWindowPlacement.Width);
+        Assert.Equal(720, loaded.SettingsWindowPlacement.Height);
+        Assert.False(loaded.SettingsWindowPlacement.IsMaximized);
         var runner = Assert.Single(loaded.Runners);
         Assert.Equal("runner-1", runner.Id);
         Assert.Equal("API", runner.DisplayName);
@@ -126,6 +140,7 @@ public sealed class RunnerConfigStoreTests
 
         Assert.False(config.AlwaysOnTop);
         Assert.Null(config.WindowPlacement);
+        Assert.Null(config.SettingsWindowPlacement);
         Assert.Empty(config.Runners);
     }
 }

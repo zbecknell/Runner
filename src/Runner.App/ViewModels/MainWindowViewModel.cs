@@ -28,6 +28,7 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
     private bool _suppressAlwaysOnTopSave;
     private List<RunnerDefinition> _lastSavedDefinitions = [];
     private RunnerViewModel? _selectedRunner;
+    private WindowPlacement? _settingsWindowPlacement;
     private string _statusMessage = "Loading configuration...";
     private int _updateProgress;
     private WindowPlacement? _windowPlacement;
@@ -95,6 +96,12 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
     {
         get => _windowPlacement;
         private set => SetProperty(ref _windowPlacement, value);
+    }
+
+    public WindowPlacement? SettingsWindowPlacement
+    {
+        get => _settingsWindowPlacement;
+        private set => SetProperty(ref _settingsWindowPlacement, value);
     }
 
     public bool AlwaysOnTop
@@ -285,6 +292,7 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
 
             AlwaysOnTop = config.AlwaysOnTop;
             SetLoadedWindowPlacement(config.WindowPlacement);
+            SetLoadedSettingsWindowPlacement(config.SettingsWindowPlacement);
             Runners.Clear();
 
             foreach (var definition in config.Runners)
@@ -576,11 +584,27 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         return SaveConfigAsync("Saved window placement.", saveRunnerChanges: false, cancellationToken);
     }
 
+    public Task SaveSettingsWindowPlacementAsync(
+        WindowPlacement placement,
+        CancellationToken cancellationToken = default)
+    {
+        SettingsWindowPlacement = placement;
+        return SaveConfigAsync("Saved settings window placement.", saveRunnerChanges: false, cancellationToken);
+    }
+
     private void SetLoadedWindowPlacement(WindowPlacement? placement)
     {
         if (!SetProperty(ref _windowPlacement, placement, nameof(WindowPlacement)))
         {
             OnPropertyChanged(nameof(WindowPlacement));
+        }
+    }
+
+    private void SetLoadedSettingsWindowPlacement(WindowPlacement? placement)
+    {
+        if (!SetProperty(ref _settingsWindowPlacement, placement, nameof(SettingsWindowPlacement)))
+        {
+            OnPropertyChanged(nameof(SettingsWindowPlacement));
         }
     }
 
@@ -893,6 +917,7 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
             {
                 AlwaysOnTop = AlwaysOnTop,
                 WindowPlacement = WindowPlacement,
+                SettingsWindowPlacement = SettingsWindowPlacement,
                 Runners = runnerDefinitions
             };
 

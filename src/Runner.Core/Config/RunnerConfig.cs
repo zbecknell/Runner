@@ -8,5 +8,7 @@ public sealed class RunnerConfig
 
     public WindowPlacement? WindowPlacement { get; set; }
 
+    public WindowPlacement? SettingsWindowPlacement { get; set; }
+
     public List<RunnerDefinition> Runners { get; set; } = [];
 }
