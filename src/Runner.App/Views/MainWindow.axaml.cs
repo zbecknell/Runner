@@ -1,5 +1,9 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
+using Avalonia.Input;
+using Avalonia.Interactivity;
+using Avalonia.VisualTree;
 using Runner.App.ViewModels;
 using Runner.Core.Config;
 
@@ -8,13 +12,15 @@ namespace Runner.App.Views;
 public partial class MainWindow : Window
 {
     private bool _closeAfterCleanup;
-    private bool _cleanupStarted;
     private bool _isOpened;
     private bool _placementApplied;
+    private Task? _cleanupTask;
     private WindowPlacement? _lastNormalPlacement;
     private WindowPlacement? _pendingPlacement;
     private SettingsWindow? _settingsWindow;
     private MainWindowViewModel? _viewModel;
+
+    public event EventHandler? TrayVisibilityChanged;
 
     public MainWindow()
     {
@@ -22,7 +28,10 @@ public partial class MainWindow : Window
         PositionChanged += (_, _) => CaptureNormalPlacement();
         Resized += (_, _) => CaptureNormalPlacement();
         DataContextChanged += (_, _) => SetViewModel(DataContext as MainWindowViewModel);
+        AddHandler(PointerPressedEvent, OnDashboardPointerPressed, RoutingStrategies.Tunnel);
     }
+
+    public bool IsShownFromTray => IsVisible && WindowState != WindowState.Minimized;
 
     public void OpenSettingsWindow()
     {
@@ -88,10 +97,64 @@ public partial class MainWindow : Window
         }
     }
 
+    public void ToggleTrayVisibility()
+    {
+        if (IsShownFromTray)
+        {
+            HideToTray();
+        }
+        else
+        {
+            ShowFromTray();
+        }
+    }
+
+    public void HideToTray()
+    {
+        if (_cleanupTask is not null)
+        {
+            return;
+        }
+
+        CaptureNormalPlacement();
+        ShowInTaskbar = false;
+        Hide();
+        OnTrayVisibilityChanged();
+    }
+
+    public void ShowFromTray()
+    {
+        if (_cleanupTask is not null)
+        {
+            return;
+        }
+
+        ShowInTaskbar = true;
+
+        if (!IsVisible)
+        {
+            Show();
+        }
+
+        if (WindowState == WindowState.Minimized)
+        {
+            WindowState = WindowState.Normal;
+        }
+
+        Activate();
+        OnTrayVisibilityChanged();
+    }
+
+    public Task ExitApplicationAsync()
+    {
+        return BeginCleanupAndCloseAsync();
+    }
+
     protected override void OnOpened(EventArgs e)
     {
         base.OnOpened(e);
         _isOpened = true;
+        OnTrayVisibilityChanged();
 
         if (_pendingPlacement is { } placement)
         {
@@ -101,6 +164,16 @@ public partial class MainWindow : Window
         }
 
         CaptureNormalPlacement();
+    }
+
+    protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
+    {
+        base.OnPropertyChanged(change);
+
+        if (change.Property == IsVisibleProperty || change.Property == WindowStateProperty)
+        {
+            OnTrayVisibilityChanged();
+        }
     }
 
     protected override void OnClosing(WindowClosingEventArgs e)
@@ -113,18 +186,24 @@ public partial class MainWindow : Window
 
         e.Cancel = true;
         base.OnClosing(e);
-        BeginCleanupAndClose();
+        HideToTray();
     }
 
-    private async void BeginCleanupAndClose()
+    private Task BeginCleanupAndCloseAsync()
     {
-        if (_cleanupStarted)
+        if (_cleanupTask is not null)
         {
-            return;
+            return _cleanupTask;
         }
 
-        _cleanupStarted = true;
+        _cleanupTask = CleanupAndCloseAsync();
+        return _cleanupTask;
+    }
+
+    private async Task CleanupAndCloseAsync()
+    {
         IsEnabled = false;
+        CloseSettingsWindowForShutdown();
 
         try
         {
@@ -140,6 +219,17 @@ public partial class MainWindow : Window
             _closeAfterCleanup = true;
             Close();
         }
+    }
+
+    private void CloseSettingsWindowForShutdown()
+    {
+        if (_settingsWindow is null)
+        {
+            return;
+        }
+
+        _settingsWindow.CloseWithoutConfirmation();
+        _settingsWindow = null;
     }
 
     private void CaptureNormalPlacement()
@@ -203,6 +293,41 @@ public partial class MainWindow : Window
             : minimum;
     }
 
+    private void OnDashboardPointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (_cleanupTask is not null || e.ClickCount > 1)
+        {
+            return;
+        }
+
+        var point = e.GetCurrentPoint(this);
+
+        if (!point.Properties.IsLeftButtonPressed || IsInteractiveDragSource(e.Source))
+        {
+            return;
+        }
+
+        BeginMoveDrag(e);
+    }
+
+    private static bool IsInteractiveDragSource(object? source)
+    {
+        for (var visual = source as Visual; visual is not null; visual = visual.GetVisualParent())
+        {
+            if (visual is Button
+                or TextBox
+                or ComboBox
+                or ScrollBar
+                or Thumb
+                or MenuItem)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private void SetViewModel(MainWindowViewModel? viewModel)
     {
         if (_viewModel is not null)
@@ -221,5 +346,10 @@ public partial class MainWindow : Window
     private void OnSettingsOpenRequested(object? sender, EventArgs e)
     {
         OpenSettingsWindow();
+    }
+
+    private void OnTrayVisibilityChanged()
+    {
+        TrayVisibilityChanged?.Invoke(this, EventArgs.Empty);
     }
 }

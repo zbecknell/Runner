@@ -15,6 +15,8 @@
         Height="170"
         MinWidth="{Binding WindowMinWidth}"
         MinHeight="{Binding WindowMinHeight}"
+        CanResize="True"
+        WindowDecorations="BorderOnly"
         Topmost="{Binding AlwaysOnTop}">
 
     <Grid RowDefinitions="*,Auto">

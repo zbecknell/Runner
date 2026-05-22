@@ -21,6 +21,12 @@ public partial class SettingsWindow : Window
         _settingsCloseConfirmation = settingsCloseConfirmation ?? new AvaloniaSettingsCloseConfirmation(this);
     }
 
+    public void CloseWithoutConfirmation()
+    {
+        _closeConfirmed = true;
+        Close();
+    }
+
     protected override void OnClosing(WindowClosingEventArgs e)
     {
         if (_closeConfirmed)
