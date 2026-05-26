@@ -43,8 +43,8 @@
                 </Button>
             </StackPanel>
 
-            <ListBox ItemsSource="{Binding Runners}"
-                     SelectedItem="{Binding SelectedRunner}"
+            <ListBox ItemsSource="{Binding DashboardItems}"
+                     SelectedItem="{Binding SelectedDashboardItem}"
                      IsVisible="{Binding HasRunners}">
                 <ListBox.Styles>
                     <Style Selector="ListBoxItem">
@@ -52,8 +52,79 @@
                         <Setter Property="MinHeight" Value="0" />
                     </Style>
                 </ListBox.Styles>
-                <ListBox.ItemTemplate>
-                    <DataTemplate DataType="vm:RunnerViewModel"
+                <ListBox.DataTemplates>
+                    <DataTemplate DataType="vm:GitRepositoryGroupViewModel"
+                                  x:CompileBindings="False">
+                        <Border Padding="4,3"
+                                MinHeight="30"
+                                Background="#F8FAFC"
+                                BorderBrush="#E5E7EB"
+                                BorderThickness="0,1,0,1"
+                                ToolTip.Tip="{Binding ToolTipText}">
+                            <Grid ColumnDefinitions="Auto,Auto,*,Auto"
+                                  ColumnSpacing="6"
+                                  VerticalAlignment="Center">
+                                <Button Grid.Column="0"
+                                        Width="24"
+                                        Height="24"
+                                        Padding="0"
+                                        Background="#FFFFFF"
+                                        BorderBrush="#D0D7DE"
+                                        BorderThickness="1"
+                                        Command="{Binding DataContext.ToggleRepositoryGroupCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                        CommandParameter="{Binding}"
+                                        IsVisible="{Binding CanCollapse}"
+                                        ToolTip.Tip="{Binding CollapseToolTip}">
+                                    <i:Icon Value="{Binding CollapseIconValue}"
+                                            Foreground="#344054"
+                                            FontSize="10"
+                                            HorizontalAlignment="Center"
+                                            VerticalAlignment="Center" />
+                                </Button>
+
+                                <i:Icon Grid.Column="1"
+                                        Value="{Binding RepositoryIconValue}"
+                                        Foreground="#475467"
+                                        FontSize="13"
+                                        VerticalAlignment="Center" />
+
+                                <TextBlock Grid.Column="2"
+                                           Text="{Binding RepositoryName}"
+                                           FontSize="12"
+                                           FontWeight="SemiBold"
+                                           Foreground="#344054"
+                                           TextTrimming="CharacterEllipsis"
+                                           VerticalAlignment="Center" />
+
+                                <Border Grid.Column="3"
+                                        Padding="6,2"
+                                        CornerRadius="4"
+                                        Background="#EEF2FF"
+                                        BorderBrush="#C7D2FE"
+                                        BorderThickness="1"
+                                        MaxWidth="132"
+                                        VerticalAlignment="Center">
+                                    <Grid ColumnDefinitions="Auto,*"
+                                          ColumnSpacing="5">
+                                        <i:Icon Grid.Column="0"
+                                                Value="fa-solid fa-code-branch"
+                                                Foreground="#3730A3"
+                                                FontSize="9"
+                                                VerticalAlignment="Center" />
+                                        <TextBlock Grid.Column="1"
+                                                   Text="{Binding BranchDisplay}"
+                                                   Foreground="#3730A3"
+                                                   FontSize="11"
+                                                   FontWeight="SemiBold"
+                                                   TextTrimming="CharacterEllipsis" />
+                                    </Grid>
+                                </Border>
+
+                            </Grid>
+                        </Border>
+                    </DataTemplate>
+
+                    <DataTemplate DataType="vm:RunnerDashboardItemViewModel"
                                   x:CompileBindings="False">
                         <Border Padding="4,2"
                                 MinHeight="34"
@@ -69,13 +140,13 @@
                                           RowSpacing="1"
                                           VerticalAlignment="Center">
                                         <TextBlock Grid.Row="0"
-                                                   Text="{Binding Header}"
+                                                   Text="{Binding Runner.Header}"
                                                    FontSize="13"
                                                    FontWeight="SemiBold"
                                                    TextTrimming="CharacterEllipsis"
                                                    VerticalAlignment="Center" />
                                         <TextBlock Grid.Row="1"
-                                                   Text="{Binding WorkingDirectory}"
+                                                   Text="{Binding Runner.WorkingDirectory}"
                                                    FontSize="11"
                                                    Opacity="0.72"
                                                    TextTrimming="CharacterEllipsis"
@@ -85,25 +156,25 @@
                                     <Border Grid.Column="1"
                                             Padding="6,2"
                                             CornerRadius="4"
-                                            Background="{Binding DashboardStatusBackground}"
-                                            BorderBrush="{Binding DashboardStatusBorderBrush}"
+                                            Background="{Binding Runner.DashboardStatusBackground}"
+                                            BorderBrush="{Binding Runner.DashboardStatusBorderBrush}"
                                             BorderThickness="1"
                                             MaxWidth="120"
                                             HorizontalAlignment="Left"
                                             VerticalAlignment="Center"
-                                            IsVisible="{Binding IsDashboardStatusVisible}"
-                                            ToolTip.Tip="{Binding DashboardStatusToolTip}">
+                                            IsVisible="{Binding Runner.IsDashboardStatusVisible}"
+                                            ToolTip.Tip="{Binding Runner.DashboardStatusToolTip}">
                                         <Grid ColumnDefinitions="Auto,*"
                                               ColumnSpacing="5">
                                             <i:Icon Grid.Column="0"
-                                                    Value="{Binding DashboardStatusIconValue}"
-                                                    Animation="{Binding DashboardStatusIconAnimation}"
-                                                    Foreground="{Binding DashboardStatusForeground}"
+                                                    Value="{Binding Runner.DashboardStatusIconValue}"
+                                                    Animation="{Binding Runner.DashboardStatusIconAnimation}"
+                                                    Foreground="{Binding Runner.DashboardStatusForeground}"
                                                     FontSize="9"
                                                     VerticalAlignment="Center" />
                                             <TextBlock Grid.Column="1"
-                                                       Text="{Binding DashboardStatusText}"
-                                                       Foreground="{Binding DashboardStatusForeground}"
+                                                       Text="{Binding Runner.DashboardStatusText}"
+                                                       Foreground="{Binding Runner.DashboardStatusForeground}"
                                                        FontSize="11"
                                                        FontWeight="SemiBold"
                                                        TextTrimming="CharacterEllipsis" />
@@ -115,10 +186,10 @@
                                             Height="30"
                                             Padding="0"
                                             Command="{Binding DataContext.RunRunnerCommand, RelativeSource={RelativeSource AncestorType=Window}}"
-                                            CommandParameter="{Binding}"
-                                            ToolTip.Tip="{Binding PrimaryRunToolTip}">
-                                        <i:Icon Value="{Binding PrimaryRunIconValue}"
-                                                Animation="{Binding PrimaryRunIconAnimation}"
+                                            CommandParameter="{Binding Runner}"
+                                            ToolTip.Tip="{Binding Runner.PrimaryRunToolTip}">
+                                        <i:Icon Value="{Binding Runner.PrimaryRunIconValue}"
+                                                Animation="{Binding Runner.PrimaryRunIconAnimation}"
                                                 FontSize="12"
                                                 HorizontalAlignment="Center"
                                                 VerticalAlignment="Center" />
@@ -127,8 +198,8 @@
                                             Width="30"
                                             Height="30"
                                             Padding="0"
-                                            Command="{Binding ShowFailureDetailsCommand}"
-                                            IsVisible="{Binding HasFailureDetails}"
+                                            Command="{Binding Runner.ShowFailureDetailsCommand}"
+                                            IsVisible="{Binding Runner.HasFailureDetails}"
                                             ToolTip.Tip="Failure details">
                                         <i:Icon Value="fa-solid fa-triangle-exclamation"
                                                 FontSize="12"
@@ -138,7 +209,7 @@
                                 </Grid>
 
                                 <Border Grid.Row="1"
-                                        IsVisible="{Binding IsFailureDetailsVisible}"
+                                        IsVisible="{Binding Runner.IsFailureDetailsVisible}"
                                         Margin="0,4,0,0"
                                         Padding="8"
                                         CornerRadius="5"
@@ -159,7 +230,7 @@
                                                     Width="26"
                                                     Height="26"
                                                     Padding="0"
-                                                    Command="{Binding HideFailureDetailsCommand}"
+                                                    Command="{Binding Runner.HideFailureDetailsCommand}"
                                                     ToolTip.Tip="Hide failure details">
                                                 <i:Icon Value="fa-solid fa-xmark"
                                                         FontSize="11"
@@ -169,7 +240,7 @@
                                         </Grid>
 
                                         <TextBox Grid.Row="1"
-                                                 Text="{Binding FailureDetailsText}"
+                                                 Text="{Binding Runner.FailureDetailsText}"
                                                  IsReadOnly="True"
                                                  AcceptsReturn="True"
                                                  Height="92"
@@ -183,7 +254,7 @@
                             </Grid>
                         </Border>
                     </DataTemplate>
-                </ListBox.ItemTemplate>
+                </ListBox.DataTemplates>
             </ListBox>
         </Grid>
 

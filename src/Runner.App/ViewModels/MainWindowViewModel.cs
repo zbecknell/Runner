@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.ComponentModel;
 using Avalonia.Media;
+using Avalonia.Threading;
 using CommunityToolkit.Mvvm.Input;
 using Runner.App.Services;
 using Runner.Core.Config;
@@ -16,6 +17,12 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
     private readonly IWorkingDirectoryPicker _workingDirectoryPicker;
     private readonly IRunnerRemovalConfirmation _runnerRemovalConfirmation;
     private readonly IAppUpdateService _appUpdateService;
+    private readonly IGitRepositoryService _gitRepositoryService;
+    private readonly DispatcherTimer _gitRefreshTimer;
+    private readonly Dictionary<string, GitRepositoryInfo> _repositoryInfoByRunnerId = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, bool> _collapsedRepositoryKeys = new(StringComparer.OrdinalIgnoreCase);
+    private readonly bool _isGitRefreshTimerEnabled;
+    private bool _isRefreshingGitRepositories;
     private bool _alwaysOnTop;
     private string? _availableUpdateVersion;
     private bool _isCheckingForUpdates;
@@ -34,6 +41,7 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
     private bool _suppressLogOrderSave;
     private List<RunnerDefinition> _lastSavedDefinitions = [];
     private RunnerViewModel? _selectedRunner;
+    private DashboardItemViewModel? _selectedDashboardItem;
     private WindowPlacement? _detailsWindowPlacement;
     private WindowPlacement? _settingsWindowPlacement;
     private string _statusMessage = "Loading configuration...";
@@ -46,7 +54,9 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
             new RunnerFactory(),
             NullWorkingDirectoryPicker.Instance,
             NullRunnerRemovalConfirmation.Instance,
-            NullAppUpdateService.Instance)
+            NullAppUpdateService.Instance,
+            new GitRepositoryService(),
+            TimeSpan.FromSeconds(10))
     {
         _ = LoadAsync();
     }
@@ -60,7 +70,9 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
             runnerFactory,
             workingDirectoryPicker,
             NullRunnerRemovalConfirmation.Instance,
-            NullAppUpdateService.Instance)
+            NullAppUpdateService.Instance,
+            new GitRepositoryService(),
+            TimeSpan.FromSeconds(10))
     {
     }
 
@@ -74,7 +86,9 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
             runnerFactory,
             workingDirectoryPicker,
             runnerRemovalConfirmation,
-            NullAppUpdateService.Instance)
+            NullAppUpdateService.Instance,
+            new GitRepositoryService(),
+            TimeSpan.FromSeconds(10))
     {
     }
 
@@ -84,16 +98,44 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         IWorkingDirectoryPicker workingDirectoryPicker,
         IRunnerRemovalConfirmation runnerRemovalConfirmation,
         IAppUpdateService appUpdateService)
+        : this(
+            configStore,
+            runnerFactory,
+            workingDirectoryPicker,
+            runnerRemovalConfirmation,
+            appUpdateService,
+            new GitRepositoryService(),
+            TimeSpan.FromSeconds(10))
+    {
+    }
+
+    public MainWindowViewModel(
+        RunnerConfigStore configStore,
+        IRunnerFactory runnerFactory,
+        IWorkingDirectoryPicker workingDirectoryPicker,
+        IRunnerRemovalConfirmation runnerRemovalConfirmation,
+        IAppUpdateService appUpdateService,
+        IGitRepositoryService gitRepositoryService,
+        TimeSpan gitRefreshInterval)
     {
         _configStore = configStore;
         _runnerFactory = runnerFactory;
         _workingDirectoryPicker = workingDirectoryPicker;
         _runnerRemovalConfirmation = runnerRemovalConfirmation;
         _appUpdateService = appUpdateService;
+        _gitRepositoryService = gitRepositoryService;
+        _isGitRefreshTimerEnabled = gitRefreshInterval > TimeSpan.Zero;
+        _gitRefreshTimer = new DispatcherTimer();
+        _gitRefreshTimer.Interval = _isGitRefreshTimerEnabled
+            ? gitRefreshInterval
+            : TimeSpan.FromMilliseconds(1);
+        _gitRefreshTimer.Tick += OnGitRefreshTimerTick;
         Runners.CollectionChanged += OnRunnersChanged;
     }
 
     public ObservableCollection<RunnerViewModel> Runners { get; } = [];
+
+    public ObservableCollection<DashboardItemViewModel> DashboardItems { get; } = [];
 
     public event EventHandler? SettingsOpenRequested;
 
@@ -235,6 +277,29 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
             {
                 OnPropertyChanged(nameof(HasSelectedRunner));
                 RefreshCommandStates();
+                SyncSelectedDashboardItem();
+            }
+        }
+    }
+
+    public DashboardItemViewModel? SelectedDashboardItem
+    {
+        get => _selectedDashboardItem;
+        set
+        {
+            if (value is RunnerDashboardItemViewModel runnerItem)
+            {
+                if (SetProperty(ref _selectedDashboardItem, value))
+                {
+                    SelectedRunner = runnerItem.Runner;
+                }
+
+                return;
+            }
+
+            if (_selectedDashboardItem is not null)
+            {
+                SetProperty(ref _selectedDashboardItem, null);
             }
         }
     }
@@ -415,6 +480,8 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
                 AddRunnerViewModel(definition);
             }
 
+            await RefreshGitRepositoriesAsync(cancellationToken);
+            StartGitRefreshTimer();
             CaptureSavedDefinitionsSnapshot();
             SelectedRunner = Runners.FirstOrDefault();
             StatusMessage = Runners.Count == 0
@@ -464,6 +531,59 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         }
     }
 
+    public async Task RefreshGitRepositoriesAsync(CancellationToken cancellationToken = default)
+    {
+        if (_isRefreshingGitRepositories)
+        {
+            return;
+        }
+
+        try
+        {
+            _isRefreshingGitRepositories = true;
+            var runners = Runners.ToArray();
+            var results = await Task.WhenAll(runners.Select(async runner => new
+            {
+                Runner = runner,
+                RepositoryInfo = await GetRepositoryInfoForRunnerAsync(runner, cancellationToken)
+            }));
+            var activeRunnerIds = runners
+                .Select(runner => runner.Id)
+                .ToHashSet(StringComparer.Ordinal);
+            var hasChanges = false;
+
+            foreach (var runnerId in _repositoryInfoByRunnerId.Keys.ToArray())
+            {
+                if (!activeRunnerIds.Contains(runnerId))
+                {
+                    _repositoryInfoByRunnerId.Remove(runnerId);
+                    hasChanges = true;
+                }
+            }
+
+            foreach (var result in results)
+            {
+                if (_repositoryInfoByRunnerId.TryGetValue(result.Runner.Id, out var currentRepositoryInfo)
+                    && currentRepositoryInfo == result.RepositoryInfo)
+                {
+                    continue;
+                }
+
+                _repositoryInfoByRunnerId[result.Runner.Id] = result.RepositoryInfo;
+                hasChanges = true;
+            }
+
+            if (hasChanges)
+            {
+                RebuildDashboardItems();
+            }
+        }
+        finally
+        {
+            _isRefreshingGitRepositories = false;
+        }
+    }
+
     public async Task StopAllAsync(CancellationToken cancellationToken = default)
     {
         foreach (var runner in Runners.ToArray())
@@ -477,6 +597,9 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        _gitRefreshTimer.Stop();
+        _gitRefreshTimer.Tick -= OnGitRefreshTimerTick;
+
         await StopAllAsync();
 
         foreach (var runner in Runners.ToArray())
@@ -744,6 +867,18 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
     private void OpenSettings()
     {
         RequestOpenSettings();
+    }
+
+    [RelayCommand]
+    private void ToggleRepositoryGroup(GitRepositoryGroupViewModel? group)
+    {
+        if (group is null || !group.CanCollapse)
+        {
+            return;
+        }
+
+        _collapsedRepositoryKeys[group.Key] = !group.IsCollapsed;
+        RebuildDashboardItems();
     }
 
     [RelayCommand]
@@ -1119,8 +1254,23 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
 
     private void OnRunnersChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
+        if (e.OldItems is not null)
+        {
+            foreach (var oldItem in e.OldItems.OfType<RunnerViewModel>())
+            {
+                _repositoryInfoByRunnerId.Remove(oldItem.Id);
+            }
+        }
+
         OnPropertyChanged(nameof(HasNoRunners));
         OnPropertyChanged(nameof(HasRunners));
+        RebuildDashboardItems();
+
+        if (!_isLoading)
+        {
+            _ = RefreshGitRepositoriesAsync();
+        }
+
         RefreshCommandStates();
     }
 
@@ -1149,6 +1299,14 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
                 or nameof(RunnerViewModel.EnvironmentVariablesText))
         {
             IsSettingsDirty = true;
+        }
+
+        if (sender is RunnerViewModel runner
+            && e.PropertyName == nameof(RunnerViewModel.WorkingDirectory))
+        {
+            _repositoryInfoByRunnerId.Remove(runner.Id);
+            RebuildDashboardItems();
+            _ = RefreshGitRepositoriesAsync();
         }
     }
 
@@ -1260,6 +1418,153 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         }
     }
 
+    private void RebuildDashboardItems()
+    {
+        var groups = BuildDashboardGroups();
+        DashboardItems.Clear();
+
+        foreach (var group in groups)
+        {
+            var isCollapsed = _collapsedRepositoryKeys.TryGetValue(group.Key, out var collapsed)
+                && collapsed;
+            var header = new GitRepositoryGroupViewModel(
+                group.Key,
+                group.RepositoryInfo,
+                group.Runners.Count,
+                isCollapsed);
+            DashboardItems.Add(header);
+
+            if (header.IsCollapsed)
+            {
+                continue;
+            }
+
+            foreach (var runner in group.Runners)
+            {
+                DashboardItems.Add(new RunnerDashboardItemViewModel(runner));
+            }
+        }
+
+        SyncSelectedDashboardItem();
+    }
+
+    private async Task<GitRepositoryInfo> GetRepositoryInfoForRunnerAsync(
+        RunnerViewModel runner,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await _gitRepositoryService.GetRepositoryInfoAsync(
+                runner.WorkingDirectory,
+                cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            return GitRepositoryInfo.Unknown(ex.Message);
+        }
+    }
+
+    private List<DashboardGroup> BuildDashboardGroups()
+    {
+        var repositoryGroups = new List<DashboardGroup>();
+        var repositoryGroupsByKey = new Dictionary<string, DashboardGroup>(StringComparer.OrdinalIgnoreCase);
+        DashboardGroup? noRepositoryGroup = null;
+        DashboardGroup? unknownRepositoryGroup = null;
+
+        foreach (var runner in Runners)
+        {
+            var repositoryInfo = _repositoryInfoByRunnerId.TryGetValue(runner.Id, out var knownRepositoryInfo)
+                ? knownRepositoryInfo
+                : GitRepositoryInfo.NoRepository();
+
+            if (repositoryInfo.HasRepository
+                && !string.IsNullOrWhiteSpace(repositoryInfo.RepositoryRoot))
+            {
+                var key = NormalizeRepositoryKey(repositoryInfo.RepositoryRoot);
+
+                if (!repositoryGroupsByKey.TryGetValue(key, out var group))
+                {
+                    group = new DashboardGroup(key, repositoryInfo);
+                    repositoryGroupsByKey.Add(key, group);
+                    repositoryGroups.Add(group);
+                }
+
+                group.Runners.Add(runner);
+                continue;
+            }
+
+            if (repositoryInfo.State == GitRepositoryState.Unknown)
+            {
+                unknownRepositoryGroup ??= new DashboardGroup("__git_unknown__", repositoryInfo);
+                unknownRepositoryGroup.Runners.Add(runner);
+                continue;
+            }
+
+            noRepositoryGroup ??= new DashboardGroup("__no_git_repository__", GitRepositoryInfo.NoRepository());
+            noRepositoryGroup.Runners.Add(runner);
+        }
+
+        if (unknownRepositoryGroup is not null)
+        {
+            repositoryGroups.Add(unknownRepositoryGroup);
+        }
+
+        if (noRepositoryGroup is not null)
+        {
+            repositoryGroups.Add(noRepositoryGroup);
+        }
+
+        return repositoryGroups;
+    }
+
+    private void SyncSelectedDashboardItem()
+    {
+        var selectedItem = SelectedRunner is null
+            ? null
+            : DashboardItems
+                .OfType<RunnerDashboardItemViewModel>()
+                .FirstOrDefault(item => ReferenceEquals(item.Runner, SelectedRunner));
+
+        if (!ReferenceEquals(_selectedDashboardItem, selectedItem))
+        {
+            _selectedDashboardItem = selectedItem;
+            OnPropertyChanged(nameof(SelectedDashboardItem));
+        }
+    }
+
+    private void StartGitRefreshTimer()
+    {
+        if (!_isGitRefreshTimerEnabled || _gitRefreshTimer.IsEnabled)
+        {
+            return;
+        }
+
+        _gitRefreshTimer.Start();
+    }
+
+    private async void OnGitRefreshTimerTick(object? sender, EventArgs e)
+    {
+        await RefreshGitRepositoriesAsync();
+    }
+
+    private static string NormalizeRepositoryKey(string repositoryRoot)
+    {
+        try
+        {
+            return Path.GetFullPath(repositoryRoot).TrimEnd(
+                Path.DirectorySeparatorChar,
+                Path.AltDirectorySeparatorChar);
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return repositoryRoot;
+        }
+    }
+
     private static string FormatEnvironmentVariables(IReadOnlyDictionary<string, string> environmentVariables)
     {
         return string.Join(
@@ -1277,5 +1582,14 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         return double.IsFinite(value)
             ? Math.Clamp(value, 0.1, 1.0)
             : 1.0;
+    }
+
+    private sealed class DashboardGroup(string key, GitRepositoryInfo repositoryInfo)
+    {
+        public string Key { get; } = key;
+
+        public GitRepositoryInfo RepositoryInfo { get; } = repositoryInfo;
+
+        public List<RunnerViewModel> Runners { get; } = [];
     }
 }

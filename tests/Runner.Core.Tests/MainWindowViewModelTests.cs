@@ -1362,6 +1362,186 @@ public sealed class MainWindowViewModelTests
         Assert.False(viewModel.BrowseWorkingDirectoryCommand.CanExecute(null));
     }
 
+    [Fact]
+    public async Task LoadAsync_GroupsDashboardItemsByRepositoryWithoutChangingSavedRunnerOrder()
+    {
+        using var directory = TempDirectory.Create();
+        var repoA = Path.Combine(directory.Path, "repo-a");
+        var repoB = Path.Combine(directory.Path, "repo-b");
+        var apiDirectory = Path.Combine(repoA, "api");
+        var cliDirectory = Path.Combine(repoB, "cli");
+        var workerDirectory = Path.Combine(repoA, "worker");
+        var toolDirectory = Path.Combine(directory.Path, "tool");
+        Directory.CreateDirectory(apiDirectory);
+        Directory.CreateDirectory(cliDirectory);
+        Directory.CreateDirectory(workerDirectory);
+        Directory.CreateDirectory(toolDirectory);
+        var configStore = CreateConfigStore(
+            directory.Path,
+            CreateRunnerDefinition("API", apiDirectory),
+            CreateRunnerDefinition("CLI", cliDirectory),
+            CreateRunnerDefinition("Worker", workerDirectory),
+            CreateRunnerDefinition("Tool", toolDirectory));
+        var gitService = new FakeGitRepositoryService
+        {
+            ResultsByWorkingDirectory =
+            {
+                [apiDirectory] = GitRepositoryInfo.Repository(repoA, "repo-a", "main"),
+                [workerDirectory] = GitRepositoryInfo.Repository(repoA, "repo-a", "main"),
+                [cliDirectory] = GitRepositoryInfo.Repository(repoB, "repo-b", "feature/git"),
+                [toolDirectory] = GitRepositoryInfo.NoRepository()
+            }
+        };
+        var viewModel = CreateViewModel(configStore, gitService);
+
+        await viewModel.LoadAsync();
+
+        Assert.Equal(["API", "CLI", "Worker", "Tool"], viewModel.Runners.Select(runner => runner.DisplayName));
+        Assert.Collection(
+            viewModel.DashboardItems,
+            item => AssertRepositoryGroup(item, "repo-a", "main"),
+            item => AssertRunnerItem(item, "API"),
+            item => AssertRunnerItem(item, "Worker"),
+            item => AssertRepositoryGroup(item, "repo-b", "feature/git"),
+            item => AssertRunnerItem(item, "CLI"),
+            item =>
+            {
+                var group = Assert.IsType<GitRepositoryGroupViewModel>(item);
+                Assert.Equal("No Git repository", group.RepositoryName);
+                Assert.Equal("Not in Git", group.BranchDisplay);
+                Assert.False(group.CanCollapse);
+            },
+            item => AssertRunnerItem(item, "Tool"));
+    }
+
+    [Fact]
+    public async Task ToggleRepositoryGroupCommand_CollapsesOnlyDashboardRows()
+    {
+        using var directory = TempDirectory.Create();
+        var repo = Path.Combine(directory.Path, "repo");
+        var apiDirectory = Path.Combine(repo, "api");
+        var workerDirectory = Path.Combine(repo, "worker");
+        Directory.CreateDirectory(apiDirectory);
+        Directory.CreateDirectory(workerDirectory);
+        var configStore = CreateConfigStore(
+            directory.Path,
+            CreateRunnerDefinition("API", apiDirectory),
+            CreateRunnerDefinition("Worker", workerDirectory));
+        var gitService = new FakeGitRepositoryService
+        {
+            ResultsByWorkingDirectory =
+            {
+                [apiDirectory] = GitRepositoryInfo.Repository(repo, "repo", "main"),
+                [workerDirectory] = GitRepositoryInfo.Repository(repo, "repo", "main")
+            }
+        };
+        var viewModel = CreateViewModel(configStore, gitService);
+        await viewModel.LoadAsync();
+        var group = Assert.IsType<GitRepositoryGroupViewModel>(viewModel.DashboardItems[0]);
+        Assert.Equal("fa-solid fa-caret-down", group.CollapseIconValue);
+
+        viewModel.ToggleRepositoryGroupCommand.Execute(group);
+
+        Assert.Collection(
+            viewModel.DashboardItems,
+            item =>
+            {
+                var collapsedGroup = AssertRepositoryGroup(item, "repo", "main");
+                Assert.True(collapsedGroup.IsCollapsed);
+                Assert.Equal("fa-solid fa-caret-right", collapsedGroup.CollapseIconValue);
+            });
+        Assert.Equal(["API", "Worker"], viewModel.Runners.Select(runner => runner.DisplayName));
+    }
+
+    [Fact]
+    public async Task RefreshGitRepositoriesAsync_UpdatesBranchDisplay()
+    {
+        using var directory = TempDirectory.Create();
+        var repo = Path.Combine(directory.Path, "repo");
+        var appDirectory = Path.Combine(repo, "app");
+        Directory.CreateDirectory(appDirectory);
+        var configStore = CreateConfigStore(
+            directory.Path,
+            CreateRunnerDefinition("App", appDirectory));
+        var gitService = new FakeGitRepositoryService
+        {
+            ResultsByWorkingDirectory =
+            {
+                [appDirectory] = GitRepositoryInfo.Repository(repo, "repo", "main")
+            }
+        };
+        var viewModel = CreateViewModel(configStore, gitService);
+        await viewModel.LoadAsync();
+
+        gitService.ResultsByWorkingDirectory[appDirectory] =
+            GitRepositoryInfo.Repository(repo, "repo", "feature/git-dashboard");
+        await viewModel.RefreshGitRepositoriesAsync();
+
+        var group = Assert.IsType<GitRepositoryGroupViewModel>(viewModel.DashboardItems[0]);
+        Assert.Equal("feature/git-dashboard", group.BranchDisplay);
+    }
+
+    [Fact]
+    public async Task RefreshGitRepositoriesAsync_WhenMetadataIsUnchanged_DoesNotRebuildDashboardItems()
+    {
+        using var directory = TempDirectory.Create();
+        var repo = Path.Combine(directory.Path, "repo");
+        var appDirectory = Path.Combine(repo, "app");
+        Directory.CreateDirectory(appDirectory);
+        var configStore = CreateConfigStore(
+            directory.Path,
+            CreateRunnerDefinition("App", appDirectory));
+        var gitService = new FakeGitRepositoryService
+        {
+            ResultsByWorkingDirectory =
+            {
+                [appDirectory] = GitRepositoryInfo.Repository(repo, "repo", "main")
+            }
+        };
+        var viewModel = CreateViewModel(configStore, gitService);
+        await viewModel.LoadAsync();
+        var originalItems = viewModel.DashboardItems.ToArray();
+
+        await viewModel.RefreshGitRepositoriesAsync();
+
+        Assert.Equal(originalItems.Length, viewModel.DashboardItems.Count);
+        for (var index = 0; index < originalItems.Length; index++)
+        {
+            Assert.Same(originalItems[index], viewModel.DashboardItems[index]);
+        }
+    }
+
+    [Fact]
+    public async Task RefreshGitRepositoriesAsync_DoesNotOverlapRefreshes()
+    {
+        using var directory = TempDirectory.Create();
+        var repo = Path.Combine(directory.Path, "repo");
+        var appDirectory = Path.Combine(repo, "app");
+        Directory.CreateDirectory(appDirectory);
+        var configStore = CreateConfigStore(
+            directory.Path,
+            CreateRunnerDefinition("App", appDirectory));
+        var gitService = new FakeGitRepositoryService
+        {
+            ResultsByWorkingDirectory =
+            {
+                [appDirectory] = GitRepositoryInfo.Repository(repo, "repo", "main")
+            }
+        };
+        var viewModel = CreateViewModel(configStore, gitService);
+        await viewModel.LoadAsync();
+        gitService.BlockRequests = new TaskCompletionSource();
+
+        var firstRefresh = viewModel.RefreshGitRepositoriesAsync();
+        await gitService.WaitForRequestAsync(expectedCallCount: 2);
+        var secondRefresh = viewModel.RefreshGitRepositoriesAsync();
+        gitService.BlockRequests.SetResult();
+        await Task.WhenAll(firstRefresh, secondRefresh);
+
+        Assert.Equal(2, gitService.CallCount);
+        Assert.Equal(1, gitService.MaxConcurrentRequests);
+    }
+
     private static RunnerConfigStore CreateConfigStore(
         string workingDirectory,
         params RunnerDefinition[] runners)
@@ -1393,6 +1573,37 @@ public sealed class MainWindowViewModelTests
             Type = RunnerType.DotNetProject,
             WorkingDirectory = workingDirectory
         };
+    }
+
+    private static MainWindowViewModel CreateViewModel(
+        RunnerConfigStore configStore,
+        IGitRepositoryService gitRepositoryService)
+    {
+        return new MainWindowViewModel(
+            configStore,
+            new RunnerFactory(),
+            new FakeWorkingDirectoryPicker(null),
+            new FakeRunnerRemovalConfirmation(false),
+            NullAppUpdateService.Instance,
+            gitRepositoryService,
+            TimeSpan.Zero);
+    }
+
+    private static GitRepositoryGroupViewModel AssertRepositoryGroup(
+        DashboardItemViewModel item,
+        string repositoryName,
+        string branchDisplay)
+    {
+        var group = Assert.IsType<GitRepositoryGroupViewModel>(item);
+        Assert.Equal(repositoryName, group.RepositoryName);
+        Assert.Equal(branchDisplay, group.BranchDisplay);
+        return group;
+    }
+
+    private static void AssertRunnerItem(DashboardItemViewModel item, string displayName)
+    {
+        var runnerItem = Assert.IsType<RunnerDashboardItemViewModel>(item);
+        Assert.Equal(displayName, runnerItem.Runner.DisplayName);
     }
 
     private static async Task<RunnerConfig> WaitForSavedConfigAsync(
@@ -1478,6 +1689,58 @@ public sealed class MainWindowViewModelTests
         {
             ApplyCount++;
             return Task.CompletedTask;
+        }
+    }
+
+    private sealed class FakeGitRepositoryService : IGitRepositoryService
+    {
+        private int _activeRequests;
+
+        public Dictionary<string, GitRepositoryInfo> ResultsByWorkingDirectory { get; } =
+            new(StringComparer.OrdinalIgnoreCase);
+
+        public TaskCompletionSource? BlockRequests { get; set; }
+
+        public int CallCount { get; private set; }
+
+        public int MaxConcurrentRequests { get; private set; }
+
+        public async Task<GitRepositoryInfo> GetRepositoryInfoAsync(
+            string workingDirectory,
+            CancellationToken cancellationToken = default)
+        {
+            var activeRequests = Interlocked.Increment(ref _activeRequests);
+            MaxConcurrentRequests = Math.Max(MaxConcurrentRequests, activeRequests);
+            CallCount++;
+
+            try
+            {
+                if (BlockRequests is { } blockRequests)
+                {
+                    await blockRequests.Task.WaitAsync(cancellationToken);
+                }
+
+                return ResultsByWorkingDirectory.TryGetValue(workingDirectory, out var repositoryInfo)
+                    ? repositoryInfo
+                    : GitRepositoryInfo.NoRepository();
+            }
+            finally
+            {
+                Interlocked.Decrement(ref _activeRequests);
+            }
+        }
+
+        public async Task WaitForRequestAsync(int expectedCallCount)
+        {
+            for (var attempt = 0; attempt < 20; attempt++)
+            {
+                if (CallCount >= expectedCallCount)
+                {
+                    return;
+                }
+
+                await Task.Delay(50);
+            }
         }
     }
 

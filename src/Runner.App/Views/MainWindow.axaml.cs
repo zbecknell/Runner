@@ -359,7 +359,7 @@ public partial class MainWindow : Window
         {
             if (point.Properties.IsLeftButtonPressed
                 && !IsInteractiveDragSource(e.Source)
-                && TryFindVisualAncestor<ListBoxItem>(e.Source)?.DataContext is RunnerViewModel runner)
+                && TryFindRunnerDashboardItem(e.Source) is { } runner)
             {
                 _viewModel?.OpenRunnerDetailsCommand.Execute(runner);
                 e.Handled = true;
@@ -370,6 +370,7 @@ public partial class MainWindow : Window
 
         if (!point.Properties.IsLeftButtonPressed
             || IsResizeDragStart(point.Position)
+            || TryFindVisualAncestor<ListBoxItem>(e.Source) is not null
             || IsInteractiveDragSource(e.Source))
         {
             return;
@@ -417,11 +418,12 @@ public partial class MainWindow : Window
         }
 
         var listBoxItem = TryFindVisualAncestor<ListBoxItem>(e.Source);
-        if (listBoxItem?.DataContext is not RunnerViewModel runner)
+        if (listBoxItem?.DataContext is not RunnerDashboardItemViewModel runnerItem)
         {
             return;
         }
 
+        var runner = runnerItem.Runner;
         _viewModel.SelectedRunner = runner;
         var menu = new ContextMenu
         {
@@ -470,6 +472,16 @@ public partial class MainWindow : Window
             Header = header,
             Command = command,
             CommandParameter = runner
+        };
+    }
+
+    private static RunnerViewModel? TryFindRunnerDashboardItem(object? source)
+    {
+        return TryFindVisualAncestor<ListBoxItem>(source)?.DataContext switch
+        {
+            RunnerDashboardItemViewModel item => item.Runner,
+            RunnerViewModel runner => runner,
+            _ => null
         };
     }
 
