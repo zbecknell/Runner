@@ -68,6 +68,7 @@
                                VerticalAlignment="Center" />
                     <TextBlock Grid.Column="1"
                                Text="{Binding Runner.ProcessText}"
+                               IsVisible="{Binding Runner.IsProcessTextVisible}"
                                Foreground="#667085"
                                FontSize="12"
                                VerticalAlignment="Center" />
@@ -94,7 +95,8 @@
                     </StackPanel>
                 </Button>
                 <Button Command="{Binding Dashboard.RestartRunnerCommand}"
-                        CommandParameter="{Binding Runner}">
+                        CommandParameter="{Binding Runner}"
+                        IsVisible="{Binding Runner.CanShowRestartAction}">
                     <StackPanel Orientation="Horizontal"
                                 Spacing="6">
                         <i:Icon Value="fa-solid fa-rotate-right"

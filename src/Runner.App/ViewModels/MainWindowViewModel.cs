@@ -644,6 +644,7 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
             Command = source.Command,
             Arguments = source.Arguments,
             CleanBeforeRestore = source.CleanBeforeRestore,
+            CustomCommands = source.CustomCommands.Clone(),
             EnvironmentVariables = new Dictionary<string, string>(
                 source.EnvironmentVariables,
                 StringComparer.OrdinalIgnoreCase)
@@ -966,15 +967,21 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         {
             StatusMessage = runner.IsBuildOnly
                 ? $"Building {runner.Header}..."
+                : runner.IsCustomCommands
+                    ? $"Running {runner.Header}..."
                 : $"Starting {runner.Header}...";
             await runner.StartAsync();
             StatusMessage = runner.IsBuildOnly
                 ? $"Built {runner.Header}."
+                : runner.IsCustomCommands
+                    ? $"Ran {runner.Header}."
                 : $"Started {runner.Header}.";
         }
         catch (Exception ex)
         {
-            StatusMessage = $"Start failed: {ex.Message}";
+            StatusMessage = runner.IsCustomCommands
+                ? $"Run failed: {ex.Message}"
+                : $"Start failed: {ex.Message}";
         }
         finally
         {
@@ -1199,6 +1206,10 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
                 runner.Command = savedDefinition.Command;
                 runner.Arguments = savedDefinition.Arguments;
                 runner.CleanBeforeRestore = savedDefinition.CleanBeforeRestore;
+                runner.CustomCleanCommand = savedDefinition.CustomCommands.Clean;
+                runner.CustomRestoreCommand = savedDefinition.CustomCommands.Restore;
+                runner.CustomBuildCommand = savedDefinition.CustomCommands.Build;
+                runner.CustomRunCommand = savedDefinition.CustomCommands.Run;
                 runner.EnvironmentVariablesText = FormatEnvironmentVariables(savedDefinition.EnvironmentVariables);
             }
 
@@ -1296,6 +1307,10 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
                 or nameof(RunnerViewModel.Command)
                 or nameof(RunnerViewModel.Arguments)
                 or nameof(RunnerViewModel.CleanBeforeRestore)
+                or nameof(RunnerViewModel.CustomCleanCommand)
+                or nameof(RunnerViewModel.CustomRestoreCommand)
+                or nameof(RunnerViewModel.CustomBuildCommand)
+                or nameof(RunnerViewModel.CustomRunCommand)
                 or nameof(RunnerViewModel.EnvironmentVariablesText))
         {
             IsSettingsDirty = true;

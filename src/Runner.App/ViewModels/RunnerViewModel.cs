@@ -15,6 +15,10 @@ public sealed partial class RunnerViewModel : ViewModelBase, IAsyncDisposable
     private string _command;
     private string _arguments;
     private bool _cleanBeforeRestore;
+    private string _customCleanCommand;
+    private string _customRestoreCommand;
+    private string _customBuildCommand;
+    private string _customRunCommand;
     private string _environmentVariablesText;
     private RunnerStatus _status;
     private int? _processId;
@@ -26,12 +30,17 @@ public sealed partial class RunnerViewModel : ViewModelBase, IAsyncDisposable
         Definition = definition;
         Definition.EnsureId();
         _runnerFactory = runnerFactory;
+        Definition.CustomCommands ??= new RunnerCommandSet();
 
         _displayName = definition.DisplayName;
         _workingDirectory = definition.WorkingDirectory;
         _command = definition.Command;
         _arguments = definition.Arguments;
         _cleanBeforeRestore = definition.CleanBeforeRestore;
+        _customCleanCommand = definition.CustomCommands.Clean;
+        _customRestoreCommand = definition.CustomCommands.Restore;
+        _customBuildCommand = definition.CustomCommands.Build;
+        _customRunCommand = definition.CustomCommands.Run;
         _environmentVariablesText = FormatEnvironmentVariables(definition.EnvironmentVariables);
         _runner = runnerFactory.Create(definition);
         _status = _runner.Status;
@@ -47,7 +56,8 @@ public sealed partial class RunnerViewModel : ViewModelBase, IAsyncDisposable
     public IReadOnlyList<RunnerTypeOption> AvailableTypes { get; } =
     [
         new(RunnerType.DotNetProject, "Run .NET project"),
-        new(RunnerType.DotNetProjectBuild, "Build .NET project")
+        new(RunnerType.DotNetProjectBuild, "Build .NET project"),
+        new(RunnerType.CustomCommands, "Custom commands")
     ];
 
     public string DisplayName
@@ -78,10 +88,15 @@ public sealed partial class RunnerViewModel : ViewModelBase, IAsyncDisposable
             OnPropertyChanged();
             OnPropertyChanged(nameof(SelectedTypeOption));
             OnPropertyChanged(nameof(IsBuildOnly));
+            OnPropertyChanged(nameof(IsCustomCommands));
+            OnPropertyChanged(nameof(UsesDotNetProjectSettings));
             OnPropertyChanged(nameof(Header));
             OnPropertyChanged(nameof(PrimaryRunText));
             OnPropertyChanged(nameof(PrimaryRunIconValue));
             OnPropertyChanged(nameof(PrimaryRunToolTip));
+            OnPropertyChanged(nameof(ProcessText));
+            OnPropertyChanged(nameof(IsProcessTextVisible));
+            OnPropertyChanged(nameof(CanShowRestartAction));
             OnPropertyChanged(nameof(CanStart));
             OnPropertyChanged(nameof(CanRestart));
             OnPropertyChanged(nameof(CanRunPrimary));
@@ -152,6 +167,54 @@ public sealed partial class RunnerViewModel : ViewModelBase, IAsyncDisposable
         }
     }
 
+    public string CustomCleanCommand
+    {
+        get => _customCleanCommand;
+        set
+        {
+            if (SetProperty(ref _customCleanCommand, value))
+            {
+                Definition.CustomCommands.Clean = value;
+            }
+        }
+    }
+
+    public string CustomRestoreCommand
+    {
+        get => _customRestoreCommand;
+        set
+        {
+            if (SetProperty(ref _customRestoreCommand, value))
+            {
+                Definition.CustomCommands.Restore = value;
+            }
+        }
+    }
+
+    public string CustomBuildCommand
+    {
+        get => _customBuildCommand;
+        set
+        {
+            if (SetProperty(ref _customBuildCommand, value))
+            {
+                Definition.CustomCommands.Build = value;
+            }
+        }
+    }
+
+    public string CustomRunCommand
+    {
+        get => _customRunCommand;
+        set
+        {
+            if (SetProperty(ref _customRunCommand, value))
+            {
+                Definition.CustomCommands.Run = value;
+            }
+        }
+    }
+
     public string EnvironmentVariablesText
     {
         get => _environmentVariablesText;
@@ -193,6 +256,9 @@ public sealed partial class RunnerViewModel : ViewModelBase, IAsyncDisposable
                 OnPropertyChanged(nameof(CanClean));
                 OnPropertyChanged(nameof(CanBuild));
                 OnPropertyChanged(nameof(CanEditType));
+                OnPropertyChanged(nameof(ProcessText));
+                OnPropertyChanged(nameof(IsProcessTextVisible));
+                OnPropertyChanged(nameof(CanShowRestartAction));
             }
         }
     }
@@ -329,7 +395,9 @@ public sealed partial class RunnerViewModel : ViewModelBase, IAsyncDisposable
 
     public IBrush StatusBorderBrush => ToBrush(StatusBorderColor);
 
-    public string ProcessText => ProcessId is { } processId ? $"PID {processId}" : "No process";
+    public string ProcessText => IsProcessTextVisible
+        ? (ProcessId is { } processId ? $"PID {processId}" : "No process")
+        : "";
 
     public string Header => string.IsNullOrWhiteSpace(DisplayName)
         ? $"{Type} runner"
@@ -343,7 +411,7 @@ public sealed partial class RunnerViewModel : ViewModelBase, IAsyncDisposable
         or RunnerStatus.Starting
         or RunnerStatus.Running;
 
-    public bool CanRestart => !IsBuildOnly && Status == RunnerStatus.Running;
+    public bool CanRestart => CanShowRestartAction && Status == RunnerStatus.Running;
 
     public bool CanRunPrimary => CanStop || Status is RunnerStatus.Failed or RunnerStatus.Stopped;
 
@@ -354,6 +422,14 @@ public sealed partial class RunnerViewModel : ViewModelBase, IAsyncDisposable
     public bool CanEditType => !CanStop;
 
     public bool IsBuildOnly => Type == RunnerType.DotNetProjectBuild;
+
+    public bool IsCustomCommands => Type == RunnerType.CustomCommands;
+
+    public bool UsesDotNetProjectSettings => !IsCustomCommands;
+
+    public bool IsProcessTextVisible => !IsCustomCommands;
+
+    public bool CanShowRestartAction => Type == RunnerType.DotNetProject;
 
     private bool IsBuildOnlyFinished => IsBuildOnly
         && Status == RunnerStatus.Stopped

@@ -306,23 +306,73 @@
                                 </Grid>
                             </StackPanel>
 
-                            <StackPanel Grid.Row="2"
-                                        Grid.Column="0"
-                                        Spacing="4">
-                                <TextBlock Text="Project path"
-                                           FontWeight="SemiBold" />
-                                <TextBox PlaceholderText="Optional .csproj path or project folder"
-                                         Text="{Binding SelectedRunner.Command}" />
-                            </StackPanel>
+                            <Grid Grid.Row="2"
+                                  Grid.Column="0"
+                                  Grid.ColumnSpan="2"
+                                  ColumnDefinitions="*,*"
+                                  ColumnSpacing="14"
+                                  IsVisible="{Binding SelectedRunner.UsesDotNetProjectSettings}">
+                                <StackPanel Grid.Column="0"
+                                            Spacing="4">
+                                    <TextBlock Text="Project path"
+                                               FontWeight="SemiBold" />
+                                    <TextBox PlaceholderText="Optional .csproj path or project folder"
+                                             Text="{Binding SelectedRunner.Command}" />
+                                </StackPanel>
 
-                            <StackPanel Grid.Row="2"
-                                        Grid.Column="1"
-                                        Spacing="4">
-                                <TextBlock Text="Arguments"
-                                           FontWeight="SemiBold" />
-                                <TextBox PlaceholderText="Optional dotnet run arguments"
-                                         Text="{Binding SelectedRunner.Arguments}" />
-                            </StackPanel>
+                                <StackPanel Grid.Column="1"
+                                            Spacing="4">
+                                    <TextBlock Text="Arguments"
+                                               FontWeight="SemiBold" />
+                                    <TextBox PlaceholderText="Optional dotnet run arguments"
+                                             Text="{Binding SelectedRunner.Arguments}" />
+                                </StackPanel>
+                            </Grid>
+
+                            <Grid Grid.Row="2"
+                                  Grid.Column="0"
+                                  Grid.ColumnSpan="2"
+                                  RowDefinitions="Auto,Auto"
+                                  ColumnDefinitions="*,*"
+                                  ColumnSpacing="14"
+                                  RowSpacing="10"
+                                  IsVisible="{Binding SelectedRunner.IsCustomCommands}">
+                                <StackPanel Grid.Row="0"
+                                            Grid.Column="0"
+                                            Spacing="4">
+                                    <TextBlock Text="Clean command"
+                                               FontWeight="SemiBold" />
+                                    <TextBox PlaceholderText="Optional shell command"
+                                             Text="{Binding SelectedRunner.CustomCleanCommand}" />
+                                </StackPanel>
+
+                                <StackPanel Grid.Row="0"
+                                            Grid.Column="1"
+                                            Spacing="4">
+                                    <TextBlock Text="Restore command"
+                                               FontWeight="SemiBold" />
+                                    <TextBox PlaceholderText="Optional shell command"
+                                             Text="{Binding SelectedRunner.CustomRestoreCommand}" />
+                                </StackPanel>
+
+                                <StackPanel Grid.Row="1"
+                                            Grid.Column="0"
+                                            Spacing="4">
+                                    <TextBlock Text="Build command"
+                                               FontWeight="SemiBold" />
+                                    <TextBox PlaceholderText="Optional shell command"
+                                             Text="{Binding SelectedRunner.CustomBuildCommand}" />
+                                </StackPanel>
+
+                                <StackPanel Grid.Row="1"
+                                            Grid.Column="1"
+                                            Spacing="4">
+                                    <TextBlock Text="Run command"
+                                               FontWeight="SemiBold" />
+                                    <TextBox PlaceholderText="Optional shell command"
+                                             Text="{Binding SelectedRunner.CustomRunCommand}" />
+                                </StackPanel>
+                            </Grid>
 
                             <StackPanel Grid.Row="3"
                                         Grid.Column="0"

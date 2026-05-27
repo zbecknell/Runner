@@ -13,6 +13,7 @@ public sealed class RunnerFactory : IRunnerFactory
         {
             RunnerType.DotNetProject => new DotNetProjectRunner(definition),
             RunnerType.DotNetProjectBuild => new DotNetProjectRunner(definition),
+            RunnerType.CustomCommands => new CustomCommandRunner(definition),
             _ => throw new NotSupportedException($"Runner type '{definition.Type}' is not supported yet.")
         };
     }

@@ -50,6 +50,7 @@ public sealed class RunnerConfigStore
         foreach (var runner in config.Runners)
         {
             runner.EnsureId();
+            runner.CustomCommands ??= new RunnerCommandSet();
         }
 
         return config;
@@ -67,6 +68,7 @@ public sealed class RunnerConfigStore
         foreach (var runner in config.Runners)
         {
             runner.EnsureId();
+            runner.CustomCommands ??= new RunnerCommandSet();
         }
 
         var tempPath = $"{FilePath}.{Guid.NewGuid():N}.tmp";

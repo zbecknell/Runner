@@ -449,6 +449,20 @@ public partial class MainWindow : Window
             ];
         }
 
+        if (runner.IsCustomCommands)
+        {
+            return
+            [
+                CreateRunnerMenuItem("Details", viewModel.OpenRunnerDetailsCommand, runner),
+                new Separator(),
+                CreateRunnerMenuItem("Run", viewModel.StartRunnerCommand, runner),
+                CreateRunnerMenuItem("Stop", viewModel.StopRunnerCommand, runner),
+                new Separator(),
+                CreateRunnerMenuItem("Clean", viewModel.CleanRunnerCommand, runner),
+                CreateRunnerMenuItem("Build", viewModel.BuildRunnerCommand, runner)
+            ];
+        }
+
         return
         [
             CreateRunnerMenuItem("Details", viewModel.OpenRunnerDetailsCommand, runner),

@@ -194,6 +194,75 @@ public sealed class RunnerConfigStoreTests
     }
 
     [Fact]
+    public async Task SaveAsyncAndLoadAsync_RoundTripsCustomCommandsProjectType()
+    {
+        using var directory = TempDirectory.Create();
+        var path = Path.Combine(directory.Path, "settings.json");
+        var store = new RunnerConfigStore(path);
+
+        await store.SaveAsync(new RunnerConfig
+        {
+            Runners =
+            [
+                new RunnerDefinition
+                {
+                    DisplayName = "Custom scripts",
+                    Type = RunnerType.CustomCommands,
+                    WorkingDirectory = "C:\\src\\scripts",
+                    CustomCommands = new RunnerCommandSet
+                    {
+                        Clean = "npm run clean",
+                        Restore = "npm install",
+                        Build = "npm run build",
+                        Run = "npm start"
+                    }
+                }
+            ]
+        });
+
+        var loaded = await store.LoadAsync();
+
+        var runner = Assert.Single(loaded.Runners);
+        Assert.Equal(RunnerType.CustomCommands, runner.Type);
+        Assert.Equal("npm run clean", runner.CustomCommands.Clean);
+        Assert.Equal("npm install", runner.CustomCommands.Restore);
+        Assert.Equal("npm run build", runner.CustomCommands.Build);
+        Assert.Equal("npm start", runner.CustomCommands.Run);
+    }
+
+    [Fact]
+    public async Task LoadAsync_WhenCustomCommandsAreMissing_DefaultsToBlankCommands()
+    {
+        using var directory = TempDirectory.Create();
+        var path = Path.Combine(directory.Path, "settings.json");
+        var store = new RunnerConfigStore(path);
+
+        await File.WriteAllTextAsync(
+            path,
+            """
+            {
+              "runners": [
+                {
+                  "id": "runner-1",
+                  "displayName": "Custom scripts",
+                  "type": "CustomCommands",
+                  "workingDirectory": "C:\\src\\scripts"
+                }
+              ]
+            }
+            """);
+
+        var config = await store.LoadAsync();
+
+        var runner = Assert.Single(config.Runners);
+        Assert.NotNull(runner.CustomCommands);
+        Assert.Equal("", runner.CustomCommands.Clean);
+        Assert.Equal("", runner.CustomCommands.Restore);
+        Assert.Equal("", runner.CustomCommands.Build);
+        Assert.Equal("", runner.CustomCommands.Run);
+    }
+
+    [Fact]
     public async Task LoadAsync_WhenFileDoesNotExist_ReturnsEmptyConfig()
     {
         using var directory = TempDirectory.Create();

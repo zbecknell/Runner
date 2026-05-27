@@ -1,8 +1,8 @@
 # Runner
 
-Runner is a small Avalonia desktop utility for starting, stopping, and restarting local project processes.
+Runner is a small Avalonia desktop utility for running local project workflows.
 
-The first runner type is `DotNetProject`, which starts projects through `dotnet run`. The runner model is intentionally generic so additional runner types, such as npm scripts, shell commands, or Docker Compose, can be added later without replacing the UI.
+Runner supports .NET projects through `dotnet restore`, `dotnet build`, and `dotnet run`, plus custom command workflows with optional clean, restore, build, and run shell commands.
 
 ## Run
 

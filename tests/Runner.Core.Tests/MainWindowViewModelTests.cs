@@ -153,6 +153,48 @@ public sealed class MainWindowViewModelTests
     }
 
     [Fact]
+    public async Task CloneSelectedCommand_CopiesCustomCommands()
+    {
+        using var directory = TempDirectory.Create();
+        var sourceDefinition = new RunnerDefinition
+        {
+            Id = "source-runner",
+            DisplayName = "Scripts",
+            Type = RunnerType.CustomCommands,
+            WorkingDirectory = directory.Path,
+            CustomCommands = new RunnerCommandSet
+            {
+                Clean = "npm run clean",
+                Restore = "npm install",
+                Build = "npm run build",
+                Run = "npm start"
+            }
+        };
+        var configStore = CreateConfigStore(directory.Path, sourceDefinition);
+        var viewModel = new MainWindowViewModel(
+            configStore,
+            new RunnerFactory(),
+            new FakeWorkingDirectoryPicker(null),
+            new FakeRunnerRemovalConfirmation(false));
+        await viewModel.LoadAsync();
+
+        await viewModel.CloneSelectedCommand.ExecuteAsync(null);
+
+        var clone = viewModel.Runners[1];
+        Assert.Equal(RunnerType.CustomCommands, clone.Type);
+        Assert.Equal("npm run clean", clone.CustomCleanCommand);
+        Assert.Equal("npm install", clone.CustomRestoreCommand);
+        Assert.Equal("npm run build", clone.CustomBuildCommand);
+        Assert.Equal("npm start", clone.CustomRunCommand);
+
+        clone.CustomRunCommand = "npm run dev";
+        Assert.Equal("npm start", viewModel.Runners[0].CustomRunCommand);
+
+        var savedConfig = await configStore.LoadAsync();
+        Assert.Equal("npm start", savedConfig.Runners[1].CustomCommands.Run);
+    }
+
+    [Fact]
     public async Task MoveRunner_ReordersProjectsPreservesSelectionAndMarksSettingsDirty()
     {
         using var directory = TempDirectory.Create();
@@ -372,6 +414,39 @@ public sealed class MainWindowViewModelTests
     }
 
     [Fact]
+    public async Task CustomCommandEdit_MarksSettingsDirtyAndSavePersists()
+    {
+        using var directory = TempDirectory.Create();
+        var configStore = CreateConfigStore(directory.Path);
+        var viewModel = new MainWindowViewModel(
+            configStore,
+            new RunnerFactory(),
+            new FakeWorkingDirectoryPicker(null),
+            new FakeRunnerRemovalConfirmation(false));
+        await viewModel.LoadAsync();
+
+        var runner = viewModel.SelectedRunner!;
+        runner.Type = RunnerType.CustomCommands;
+        runner.CustomCleanCommand = "npm run clean";
+        runner.CustomRestoreCommand = "npm install";
+        runner.CustomBuildCommand = "npm run build";
+        runner.CustomRunCommand = "npm start";
+
+        Assert.True(viewModel.IsSettingsDirty);
+
+        await viewModel.SaveConfigCommand.ExecuteAsync(null);
+
+        Assert.False(viewModel.IsSettingsDirty);
+        var savedConfig = await configStore.LoadAsync();
+        var savedRunner = savedConfig.Runners[0];
+        Assert.Equal(RunnerType.CustomCommands, savedRunner.Type);
+        Assert.Equal("npm run clean", savedRunner.CustomCommands.Clean);
+        Assert.Equal("npm install", savedRunner.CustomCommands.Restore);
+        Assert.Equal("npm run build", savedRunner.CustomCommands.Build);
+        Assert.Equal("npm start", savedRunner.CustomCommands.Run);
+    }
+
+    [Fact]
     public async Task RunRunnerCommand_ForBuildOnlyRunner_StartsBuildAndShowsBuiltStatus()
     {
         using var directory = TempDirectory.Create();
@@ -394,6 +469,31 @@ public sealed class MainWindowViewModelTests
         Assert.Equal("Built Build runner.", viewModel.StatusMessage);
         Assert.NotNull(viewModel.Runners[0].LastFinishedAt);
         Assert.Equal("Finished", viewModel.Runners[0].DashboardStatusText);
+    }
+
+    [Fact]
+    public async Task RunRunnerCommand_ForCustomCommandsRunner_StartsForegroundRunAndShowsRanStatus()
+    {
+        using var directory = TempDirectory.Create();
+        var definition = CreateRunnerDefinition("Custom runner", directory.Path);
+        definition.Type = RunnerType.CustomCommands;
+        var configStore = CreateConfigStore(directory.Path, definition);
+        var factory = new RecordingRunnerFactory(RunnerStatus.Stopped);
+        var viewModel = new MainWindowViewModel(
+            configStore,
+            factory,
+            new FakeWorkingDirectoryPicker(null),
+            new FakeRunnerRemovalConfirmation(false));
+        await viewModel.LoadAsync();
+
+        await viewModel.RunRunnerCommand.ExecuteAsync(viewModel.Runners[0]);
+
+        Assert.Equal(1, factory.Created[0].StartCount);
+        Assert.Equal(0, factory.Created[0].BuildCount);
+        Assert.Equal(0, factory.Created[0].RestartCount);
+        Assert.Equal("Ran Custom runner.", viewModel.StatusMessage);
+        Assert.Null(viewModel.Runners[0].LastFinishedAt);
+        Assert.Equal(RunnerStatus.Stopped, viewModel.Runners[0].Status);
     }
 
     [Fact]
@@ -446,6 +546,42 @@ public sealed class MainWindowViewModelTests
         Assert.Equal("", runner.Arguments);
         Assert.False(runner.CleanBeforeRestore);
         Assert.Equal("", runner.EnvironmentVariablesText);
+    }
+
+    [Fact]
+    public async Task DiscardSettingsChanges_RestoresLastSavedCustomCommands()
+    {
+        using var directory = TempDirectory.Create();
+        var definition = CreateRunnerDefinition("Scripts", directory.Path);
+        definition.Type = RunnerType.CustomCommands;
+        definition.CustomCommands = new RunnerCommandSet
+        {
+            Clean = "npm run clean",
+            Restore = "npm install",
+            Build = "npm run build",
+            Run = "npm start"
+        };
+        var configStore = CreateConfigStore(directory.Path, definition);
+        var viewModel = new MainWindowViewModel(
+            configStore,
+            new RunnerFactory(),
+            new FakeWorkingDirectoryPicker(null),
+            new FakeRunnerRemovalConfirmation(false));
+        await viewModel.LoadAsync();
+        var runner = viewModel.SelectedRunner!;
+
+        runner.CustomCleanCommand = "dirty clean";
+        runner.CustomRestoreCommand = "dirty restore";
+        runner.CustomBuildCommand = "dirty build";
+        runner.CustomRunCommand = "dirty run";
+
+        viewModel.DiscardSettingsChanges();
+
+        Assert.False(viewModel.IsSettingsDirty);
+        Assert.Equal("npm run clean", runner.CustomCleanCommand);
+        Assert.Equal("npm install", runner.CustomRestoreCommand);
+        Assert.Equal("npm run build", runner.CustomBuildCommand);
+        Assert.Equal("npm start", runner.CustomRunCommand);
     }
 
     [Fact]
@@ -1777,7 +1913,9 @@ public sealed class MainWindowViewModelTests
 
         public RunnerStatus Status { get; private set; }
 
-        public int? ProcessId => Status == RunnerStatus.Running ? 123 : null;
+        public int? ProcessId => Status == RunnerStatus.Running && Definition.Type != RunnerType.CustomCommands
+            ? 123
+            : null;
 
         public RunnerFailureDetails? LastFailure => null;
 
@@ -1818,9 +1956,9 @@ public sealed class MainWindowViewModelTests
         public Task StartAsync(CancellationToken cancellationToken = default)
         {
             StartCount++;
-            Status = Definition.Type == RunnerType.DotNetProjectBuild
-                ? RunnerStatus.Stopped
-                : RunnerStatus.Running;
+            Status = Definition.Type == RunnerType.DotNetProject
+                ? RunnerStatus.Running
+                : RunnerStatus.Stopped;
             StatusChanged?.Invoke(this, Status);
             return Task.CompletedTask;
         }

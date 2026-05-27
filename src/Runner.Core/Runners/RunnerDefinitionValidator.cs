@@ -11,7 +11,7 @@ public static class RunnerDefinitionValidator
             errors.Add("Display name is required.");
         }
 
-        if (definition.Type is not (RunnerType.DotNetProject or RunnerType.DotNetProjectBuild))
+        if (definition.Type is not (RunnerType.DotNetProject or RunnerType.DotNetProjectBuild or RunnerType.CustomCommands))
         {
             errors.Add($"Runner type '{definition.Type}' is not supported yet.");
         }

@@ -44,6 +44,41 @@ public sealed class RunnerDefinitionValidatorTests
     }
 
     [Fact]
+    public void Validate_AcceptsExistingCustomCommandsDirectoryWithBlankCommands()
+    {
+        using var directory = TempDirectory.Create();
+
+        var errors = RunnerDefinitionValidator.Validate(new RunnerDefinition
+        {
+            DisplayName = "Worker scripts",
+            Type = RunnerType.CustomCommands,
+            WorkingDirectory = directory.Path
+        });
+
+        Assert.Empty(errors);
+    }
+
+    [Fact]
+    public void Validate_DoesNotValidateCustomCommandTextAsAProjectPath()
+    {
+        using var directory = TempDirectory.Create();
+
+        var errors = RunnerDefinitionValidator.Validate(new RunnerDefinition
+        {
+            DisplayName = "Worker scripts",
+            Type = RunnerType.CustomCommands,
+            WorkingDirectory = directory.Path,
+            Command = "Missing.csproj",
+            CustomCommands = new RunnerCommandSet
+            {
+                Build = "missing-tool --flag"
+            }
+        });
+
+        Assert.Empty(errors);
+    }
+
+    [Fact]
     public void Validate_RejectsMissingProjectPath()
     {
         using var directory = TempDirectory.Create();

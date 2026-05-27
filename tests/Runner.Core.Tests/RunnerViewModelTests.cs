@@ -73,6 +73,46 @@ public sealed class RunnerViewModelTests
         Assert.True(viewModel.CanRunPrimary);
     }
 
+    [Fact]
+    public void AvailableTypes_IncludeCustomCommands()
+    {
+        var viewModel = CreateViewModel(new FakeRunner(RunnerStatus.Stopped));
+
+        Assert.Contains(
+            viewModel.AvailableTypes,
+            option => option.Type == RunnerType.CustomCommands && option.DisplayName == "Custom commands");
+    }
+
+    [Fact]
+    public void CustomCommandsProject_HidesProcessTextAndRestartAction()
+    {
+        var viewModel = CreateViewModel(new FakeRunner(RunnerStatus.Running, type: RunnerType.CustomCommands));
+
+        Assert.True(viewModel.IsCustomCommands);
+        Assert.False(viewModel.IsProcessTextVisible);
+        Assert.Equal("", viewModel.ProcessText);
+        Assert.False(viewModel.CanRestart);
+        Assert.False(viewModel.CanShowRestartAction);
+        Assert.Equal("Stop", viewModel.PrimaryRunText);
+        Assert.True(viewModel.CanStop);
+    }
+
+    [Fact]
+    public void CustomCommandProperties_UpdateDefinition()
+    {
+        var viewModel = CreateViewModel(new FakeRunner(RunnerStatus.Stopped, type: RunnerType.CustomCommands));
+
+        viewModel.CustomCleanCommand = "npm run clean";
+        viewModel.CustomRestoreCommand = "npm install";
+        viewModel.CustomBuildCommand = "npm run build";
+        viewModel.CustomRunCommand = "npm start";
+
+        Assert.Equal("npm run clean", viewModel.Definition.CustomCommands.Clean);
+        Assert.Equal("npm install", viewModel.Definition.CustomCommands.Restore);
+        Assert.Equal("npm run build", viewModel.Definition.CustomCommands.Build);
+        Assert.Equal("npm start", viewModel.Definition.CustomCommands.Run);
+    }
+
     [Theory]
     [InlineData(RunnerStatus.Cleaning, true)]
     [InlineData(RunnerStatus.Restoring, true)]
@@ -97,6 +137,8 @@ public sealed class RunnerViewModelTests
     [InlineData(RunnerStatus.Running, RunnerType.DotNetProject, false, true, false, false)]
     [InlineData(RunnerStatus.Stopped, RunnerType.DotNetProjectBuild, false, false, true, true)]
     [InlineData(RunnerStatus.Running, RunnerType.DotNetProjectBuild, false, false, false, false)]
+    [InlineData(RunnerStatus.Stopped, RunnerType.CustomCommands, true, false, true, true)]
+    [InlineData(RunnerStatus.Running, RunnerType.CustomCommands, false, false, false, false)]
     [InlineData(RunnerStatus.Stopping, RunnerType.DotNetProject, false, false, false, false)]
     public void ContextActionProperties_MapTypeAndStatusToExpectedAvailability(
         RunnerStatus status,
@@ -372,7 +414,9 @@ public sealed class RunnerViewModelTests
 
         public RunnerStatus Status { get; private set; }
 
-        public int? ProcessId => Status == RunnerStatus.Running ? 123 : null;
+        public int? ProcessId => Status == RunnerStatus.Running && Definition.Type != RunnerType.CustomCommands
+            ? 123
+            : null;
 
         public RunnerFailureDetails? LastFailure { get; private set; }
 
